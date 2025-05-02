@@ -9,6 +9,7 @@ import os
 import hashlib
 from dotenv import load_dotenv
 import urllib.parse
+import webbrowser
 
 # Carregar variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -531,14 +532,8 @@ Equipe Sempre Limpa Piscinas
         print(f"🔍 Debug - Status: {status}")
         print(f"🔍 Debug - Link gerado: {whatsapp_link}")
 
-        # Exibir botão para enviar mensagem
-        st.markdown(
-            f'<a href="{whatsapp_link}" target="_blank">'
-            f'<button style="padding:10px 20px; font-size:16px; background-color:{"#4CAF50" if status == "confirmado" else "#f44336"}; color:white; border:none; border-radius:5px;">'
-            f'{"📲 Enviar Confirmação" if status == "confirmado" else "📲 Enviar Rejeição"}'
-            f'</button></a>',
-            unsafe_allow_html=True
-        )
+        # Abrir o WhatsApp automaticamente
+        webbrowser.open(whatsapp_link)
 
         return True
 
@@ -691,8 +686,8 @@ def admin_agendamentos():
                     # Formatar data para o padrão brasileiro
                     data_formatada = datetime.strptime(row['date'], "%Y-%m-%d").strftime("%d/%m/%Y")
 
-                    # Exibir botão para enviar mensagem de confirmação
-                    st.success("Agendamento confirmado!")
+                    # Enviar mensagem de confirmação
+                    st.success("Agendamento confirmado! Abrindo WhatsApp...")
                     enviar_mensagem_whatsapp(row['contact'], row['name'], data_formatada, row['time'], row['service'], 'confirmado')
 
                     st.rerun()
@@ -707,8 +702,8 @@ def admin_agendamentos():
                     # Formatar data para o padrão brasileiro
                     data_formatada = datetime.strptime(row['date'], "%Y-%m-%d").strftime("%d/%m/%Y")
 
-                    # Exibir botão para enviar mensagem de rejeição
-                    st.warning("Agendamento rejeitado!")
+                    # Enviar mensagem de rejeição
+                    st.warning("Agendamento rejeitado! Abrindo WhatsApp...")
                     enviar_mensagem_whatsapp(row['contact'], row['name'], data_formatada, row['time'], row['service'], 'rejeitado')
 
                     st.rerun()
