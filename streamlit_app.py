@@ -128,9 +128,42 @@ def init_db():
     if c.fetchone()[0] == 0:
         default_hash = hash_pwd("senha123")
         c.execute("INSERT INTO users(username,password_hash) VALUES (?,?)", ("piscineiro", default_hash))
+
     # Configuração padrão (0 = ilimitado)
     for wd in range(7):
         c.execute("INSERT OR IGNORE INTO config(weekday,max_appointments) VALUES (?,?)", (wd, 0))
+
+    # Serviços padrão
+    c.execute("SELECT COUNT(*) FROM services")
+    if c.fetchone()[0] == 0:
+        default_services = [
+            (
+                "Pacote Anual",
+                "Manutenção completa da piscina durante todo o ano, incluindo limpeza semanal, controle químico e manutenção do equipamento. Ideal para quem quer manter sua piscina sempre em perfeitas condições.",
+                1200.00
+            ),
+            (
+                "Manutenção Semanal",
+                "Limpeza semanal da piscina, incluindo aspiração, escovação, tratamento da água e verificação do pH. Garante a qualidade da água e o bom funcionamento do sistema.",
+                150.00
+            ),
+            (
+                "Limpeza Pesada",
+                "Limpeza profunda da piscina, incluindo aspiração, escovação, tratamento de algas, limpeza de bordas e verificação completa do sistema. Indicado para piscinas que precisam de uma limpeza mais intensa.",
+                300.00
+            ),
+            (
+                "Controle Químico",
+                "Análise e ajuste dos parâmetros químicos da água (pH, cloro, alcalinidade, etc). Garante a qualidade da água e a saúde dos usuários.",
+                80.00
+            )
+        ]
+        for name, desc, price in default_services:
+            c.execute(
+                "INSERT INTO services (name, description, price, active) VALUES (?,?,?,?)",
+                (name, desc, price, 1)
+            )
+
     conn.commit()
     conn.close()
 
@@ -247,19 +280,30 @@ def mapa_tempo():
 
 def contato():
     st.title("Solicitar Orçamento")
+
+    # Verificar se existem serviços disponíveis
+    conn = get_db_connection()
+    services = conn.execute("SELECT id, name FROM services WHERE active=1").fetchall()
+    conn.close()
+
+    if not services:
+        st.warning("No momento não temos serviços disponíveis para agendamento. Por favor, entre em contato conosco pelo WhatsApp.")
+        wa_link = f"https://wa.me/{WHATSAPP_NUMBER}"
+        st.markdown(
+            f"<a href='{wa_link}' target='_blank'><img src='https://cdn-icons-png.flaticon.com/512/733/733585.png' width='24'/> Fale conosco pelo WhatsApp</a>",
+            unsafe_allow_html=True
+        )
+        return
+
+    svc_dict = {s['name']: s['id'] for s in services}
+
     with st.form("orcamento"):
         name = st.text_input("Nome")
         contact = st.text_input("Telefone ou Email")
         address = st.text_input("Endereço da piscina")
         date = st.date_input("Data desejada")
         time = st.time_input("Horário desejado")
-
-        conn = get_db_connection()
-        services = conn.execute("SELECT id, name FROM services WHERE active=1").fetchall()
-        conn.close()
-        svc_dict = {s['name']: s['id'] for s in services}
         svc = st.selectbox("Serviço", options=list(svc_dict.keys()))
-
         image = st.file_uploader("Foto da piscina (opcional)", type=['png','jpg','jpeg'])
         submitted = st.form_submit_button("Enviar")
 
@@ -322,33 +366,83 @@ def admin_agendamentos():
             st.rerun()
 
 def admin_services():
-    st.subheader("Serviços")
+    st.subheader("Gerenciamento de Serviços")
+
+    # Tabela de serviços
     conn = get_db_connection()
-    df = pd.read_sql("SELECT * FROM services", conn)
+    df = pd.read_sql("SELECT id, name, description, price, active FROM services", conn)
     conn.close()
-    st.dataframe(df)
+
+    # Renomear colunas para português
+    df = df.rename(columns={
+        'id': 'ID',
+        'name': 'Nome',
+        'description': 'Descrição',
+        'price': 'Preço (R$)',
+        'active': 'Ativo'
+    })
+
+    # Converter valores booleanos para Sim/Não
+    df['Ativo'] = df['Ativo'].map({1: 'Sim', 0: 'Não'})
+
+    # Formatar preço como moeda brasileira
+    df['Preço (R$)'] = df['Preço (R$)'].map(lambda x: f'R$ {x:,.2f}'.replace(',', '_').replace('.', ',').replace('_', '.'))
+
+    # Exibir tabela
+    st.dataframe(df, use_container_width=True)
+
+    # Formulário de edição
     with st.expander("Adicionar/Editar Serviço"):
-        sid = st.number_input("ID (em branco para novo)", min_value=0, step=1)
-        name = st.text_input("Nome")
-        desc = st.text_area("Descrição")
-        price = st.number_input("Preço sugerido", min_value=0.0, step=1.0)
-        active = st.checkbox("Ativo", value=True)
-        if st.button("Salvar Serviço"):
+        # Selecionar serviço existente para edição
+        services_list = df['Nome'].tolist()
+        services_list.insert(0, "Novo Serviço")
+        selected_service = st.selectbox("Selecione um serviço para editar ou 'Novo Serviço' para criar", options=services_list)
+
+        if selected_service == "Novo Serviço":
+            sid = 0
+            name = ""
+            desc = ""
+            price = 0.0
+            active = True
+        else:
             conn = get_db_connection()
-            if sid:
-                conn.execute(
-                    "UPDATE services SET name=?, description=?, price=?, active=? WHERE id=?",
-                    (name, desc, price, int(active), sid)
-                )
-            else:
-                conn.execute(
-                    "INSERT INTO services (name, description, price, active) VALUES (?,?,?,?)",
-                    (name, desc, price, int(active))
-                )
-            conn.commit()
+            service = conn.execute(
+                "SELECT id, name, description, price, active FROM services WHERE name=?",
+                (selected_service,)
+            ).fetchone()
             conn.close()
-            st.success("Serviço salvo.")
-            st.rerun()
+
+            sid = service['id']
+            name = service['name']
+            desc = service['description']
+            price = service['price']
+            active = bool(service['active'])
+
+        # Campos do formulário
+        name = st.text_input("Nome do Serviço", value=name)
+        desc = st.text_area("Descrição", value=desc)
+        price = st.number_input("Preço (R$)", min_value=0.0, step=1.0, value=price)
+        active = st.checkbox("Serviço Ativo", value=active)
+
+        if st.button("Salvar Serviço"):
+            if not name or not desc:
+                st.error("Nome e descrição são obrigatórios!")
+            else:
+                conn = get_db_connection()
+                if sid:
+                    conn.execute(
+                        "UPDATE services SET name=?, description=?, price=?, active=? WHERE id=?",
+                        (name, desc, price, int(active), sid)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO services (name, description, price, active) VALUES (?,?,?,?)",
+                        (name, desc, price, int(active))
+                    )
+                conn.commit()
+                conn.close()
+                st.success("Serviço salvo com sucesso!")
+                st.rerun()
 
 def admin_config():
     st.subheader("Configurar Limites Diários")
