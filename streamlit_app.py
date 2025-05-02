@@ -9,9 +9,9 @@ import os
 import hashlib
 
 # ---------- CONFIGURAÇÕES ----------
-DB_PATH = "data.db"
-WEATHER_API_KEY = "ae48d630725f23cf0a69f634c7a42fa8"
-WHATSAPP_LINK = "https://wa.me/message/QS3I4AKSCBERJ1"  # Link personalizado do WhatsApp
+DB_PATH = st.secrets["DB_PATH"]
+WEATHER_API_KEY = st.secrets["WEATHER_API_KEY"]
+WHATSAPP_LINK = st.secrets["WHATSAPP_LINK"]
 
 # Dicionário de tradução do tempo
 WEATHER_TRANSLATIONS = {
@@ -545,7 +545,7 @@ def main():
         <style>
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
-        header {visibility: hidden;}
+        header {visibility: hidden;} # para habilitar o header, basta mudar para "visible"
         </style>
     """
     st.markdown(hide_streamlit_style, unsafe_allow_html=True)
