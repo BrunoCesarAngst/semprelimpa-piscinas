@@ -356,13 +356,19 @@ def admin_agendamentos():
         return
 
     for _, row in df.iterrows():
+        # Formatar data e hora para padrão brasileiro
+        try:
+            data_hora = datetime.strptime(f"{row['date']} {row['time']}", "%Y-%m-%d %H:%M")
+            data_hora_br = data_hora.strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            data_hora_br = f"{row['date']} {row['time']}"
         with st.container():
             cols = st.columns([0.5, 1.2, 1.2, 2, 1.2, 1, 1, 1.2])
             cols[0].markdown(f"**#{row['id']}**")
             cols[1].markdown(f"**{row['name']}**")
             cols[2].markdown(f"{row['contact']}")
             cols[3].markdown(f"{row['address']}")
-            cols[4].markdown(f"{row['date']} {row['time']}")
+            cols[4].markdown(f"{data_hora_br}")
             cols[5].markdown(f"{row['service']}")
             cols[6].markdown(f"{row['status']}")
             if row['image_path'] and isinstance(row['image_path'], str) and row['image_path'].strip() != "None":
