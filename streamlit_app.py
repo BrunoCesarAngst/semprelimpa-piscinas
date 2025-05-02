@@ -350,20 +350,31 @@ def admin_agendamentos():
     conn = get_db_connection()
     df = pd.read_sql("SELECT a.id, a.name, a.contact, a.address, a.date, a.time, s.name as service, a.status, a.image_path FROM appointments a JOIN services s ON a.service_id=s.id", conn)
     conn.close()
+
+    if df.empty:
+        st.info("Nenhum agendamento encontrado.")
+        return
+
     for _, row in df.iterrows():
-        cols = st.columns([1,2,2,2,1,1,1])
-        cols[0].write(row['id'])
-        cols[1].write(row['name'])
-        cols[2].write(row['contact'])
-        cols[3].write(row['date'] + ' ' + row['time'])
-        cols[4].write(row['service'])
-        cols[5].write(row['status'])
-        if cols[6].button("Confirmar", key=f"conf_{row['id']}"):
-            conn = get_db_connection()
-            conn.execute("UPDATE appointments SET status='confirmado' WHERE id=?", (row['id'],))
-            conn.commit()
-            conn.close()
-            st.rerun()
+        with st.container():
+            cols = st.columns([0.5, 1.2, 1.2, 2, 1.2, 1, 1, 1.2])
+            cols[0].markdown(f"**#{row['id']}**")
+            cols[1].markdown(f"**{row['name']}**")
+            cols[2].markdown(f"{row['contact']}")
+            cols[3].markdown(f"{row['address']}")
+            cols[4].markdown(f"{row['date']} {row['time']}")
+            cols[5].markdown(f"{row['service']}")
+            cols[6].markdown(f"{row['status']}")
+            if row['image_path'] and isinstance(row['image_path'], str) and row['image_path'].strip() != "None":
+                cols[7].image(row['image_path'], width=80, caption="Foto enviada")
+            else:
+                cols[7].markdown("<span style='color:gray'>Sem foto</span>", unsafe_allow_html=True)
+            if st.button("Confirmar", key=f"conf_{row['id']}"):
+                conn = get_db_connection()
+                conn.execute("UPDATE appointments SET status='confirmado' WHERE id=?", (row['id'],))
+                conn.commit()
+                conn.close()
+                st.rerun()
 
 def admin_services():
     st.subheader("Gerenciamento de Serviços")
