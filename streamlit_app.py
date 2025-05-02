@@ -11,7 +11,7 @@ import hashlib
 # ---------- CONFIGURAÇÕES ----------
 DB_PATH = "data.db"
 WEATHER_API_KEY = "ae48d630725f23cf0a69f634c7a42fa8"
-WHATSAPP_NUMBER = "5591999367891"  # 55=BR, 51=DDD, número sem zeros ou símbolos
+WHATSAPP_LINK = "https://wa.me/message/QS3I4AKSCBERJ1"  # Link personalizado do WhatsApp
 
 # Dicionário de tradução do tempo
 WEATHER_TRANSLATIONS = {
@@ -220,7 +220,7 @@ def homepage():
         st.write(srv['description'])
 
     # WhatsApp link
-    wa_link = f"https://wa.me/{WHATSAPP_NUMBER}"
+    wa_link = WHATSAPP_LINK
     st.markdown(
         f"<a href='{wa_link}' target='_blank'><img src='https://cdn-icons-png.flaticon.com/512/733/733585.png' width='24'/> Fale conosco pelo WhatsApp</a>",
         unsafe_allow_html=True
@@ -288,7 +288,7 @@ def contato():
 
     if not services:
         st.warning("No momento não temos serviços disponíveis para agendamento. Por favor, entre em contato conosco pelo WhatsApp.")
-        wa_link = f"https://wa.me/{WHATSAPP_NUMBER}"
+        wa_link = WHATSAPP_LINK
         st.markdown(
             f"<a href='{wa_link}' target='_blank'><img src='https://cdn-icons-png.flaticon.com/512/733/733585.png' width='24'/> Fale conosco pelo WhatsApp</a>",
             unsafe_allow_html=True
