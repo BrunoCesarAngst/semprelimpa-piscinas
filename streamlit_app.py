@@ -540,5 +540,15 @@ def main():
         elif page == "Login":
             login()
 
+    # Ocultar barra superior, rodapé e header do Streamlit
+    hide_streamlit_style = """
+        <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        </style>
+    """
+    st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 if __name__ == "__main__":
     main()
