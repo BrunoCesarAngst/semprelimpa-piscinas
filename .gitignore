@@ -162,3 +162,42 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Arquivos de ambiente
+.env
+
+# Diretórios e arquivos do Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Diretórios de dados
+data/
+uploads/
+gallery/
+
+# Arquivos do Streamlit
+.streamlit/
+
+# Arquivos de IDE
+.idea/
+.vscode/
+*.swp
+*.swo
