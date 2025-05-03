@@ -1,17 +1,16 @@
 import streamlit as st
 from streamlit_folium import folium_static
 import folium
-import sqlite3
 import pandas as pd
 import requests
 from datetime import datetime
 import os
-import hashlib
-from dotenv import load_dotenv
 import urllib.parse
 import webbrowser
 from migrations import run_migrations
 from feature_flags import feature_flags
+from db_utils import get_db_connection, hash_pwd, check_pwd
+from dotenv import load_dotenv
 
 # Carregar variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -82,30 +81,6 @@ WEATHER_TRANSLATIONS = {
 }
 
 # ---------- FUNÇÕES AUXILIARES ----------
-def hash_pwd(pwd: str) -> str:
-    return hashlib.sha256(pwd.encode()).hexdigest()
-
-def check_pwd(hashval: str, pwd: str) -> bool:
-    return hashval == hashlib.sha256(pwd.encode()).hexdigest()
-
-def get_db_connection():
-    """Retorna uma conexão com o banco de dados apropriado para o ambiente atual"""
-    # Garantir que o diretório data existe
-    os.makedirs('data', exist_ok=True)
-
-    # Criar conexão com o banco de dados
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    """Inicializa o banco de dados com as migrações necessárias"""
-    conn = get_db_connection()
-    try:
-        run_migrations(conn)
-    finally:
-        conn.close()
-
 def get_weather():
     # Previsão atual
     url_current = f"http://api.openweathermap.org/data/2.5/weather?q=Arroio do Sal,BR&units=metric&appid={WEATHER_API_KEY}&lang=pt_br"
