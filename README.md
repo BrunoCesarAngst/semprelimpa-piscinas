@@ -8,7 +8,6 @@ Aplicação web para gerenciamento de serviços de limpeza e manutenção de pis
   - Sistema de agendamento intuitivo
   - Seleção de data e horário
   - Upload de fotos da piscina
-  - Integração com WhatsApp para confirmações
 
 - **Gerenciamento de Clientes**
   - Cadastro e login de usuários
@@ -38,7 +37,6 @@ Aplicação web para gerenciamento de serviços de limpeza e manutenção de pis
 - **Backend**: Python
 - **Banco de Dados**: SQLite
 - **APIs**: OpenWeatherMap
-- **Integrações**: WhatsApp
 - **Testes**: pytest, pytest-cov
 - **CI/CD**: GitHub Actions
 
@@ -164,5 +162,3 @@ semprelimpa-piscinas/
 Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
 
 ## 📞 Contato
-
-Para mais informações, entre em contato pelo [WhatsApp](https://wa.me/seu-numero) ou [Instagram](https://instagram.com/semprelimpa_piscinas).
