@@ -59,7 +59,7 @@ jobs:
 
       - name: Run migrations on staging
         run: |
-          ENVIRONMENT=staging python init_db.py
+          alembic upgrade head
 
       - name: Validate staging
         run: |
