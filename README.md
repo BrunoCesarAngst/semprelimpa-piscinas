@@ -1,22 +1,65 @@
 # Sempre Limpa Piscinas
 
-Aplicação web para gerenciamento de serviços de limpeza de piscinas.
+Aplicação web para gerenciamento de serviços de limpeza e manutenção de piscinas, desenvolvida com Streamlit.
 
-## Requisitos
+## 🚀 Funcionalidades
 
-- Python 3.8 ou superior
-- pip (gerenciador de pacotes Python)
+- **Agendamento de Serviços**
+  - Sistema de agendamento intuitivo
+  - Seleção de data e horário
+  - Upload de fotos da piscina
+  - Integração com WhatsApp para confirmações
 
-## Instalação
+- **Gerenciamento de Clientes**
+  - Cadastro e login de usuários
+  - Perfil personalizado
+  - Histórico de agendamentos
+  - Área do cliente
 
-1. Clone este repositório:
+- **Painel Administrativo**
+  - Gerenciamento de agendamentos
+  - Controle de serviços e preços
+  - Configuração de limites diários
+  - Galeria de fotos "Antes & Depois"
+
+- **Previsão do Tempo**
+  - Integração com API de previsão do tempo
+  - Visualização em mapa da área de cobertura
+  - Previsão para os próximos dias
+
+- **Feature Flags**
+  - Sistema de flags para controle de funcionalidades
+  - Ativação/desativação de features sem deploy
+  - Controle granular de acesso
+
+## 🛠️ Tecnologias
+
+- **Frontend**: Streamlit
+- **Backend**: Python
+- **Banco de Dados**: SQLite
+- **APIs**: OpenWeatherMap
+- **Integrações**: WhatsApp
+- **Testes**: pytest, pytest-cov
+- **CI/CD**: GitHub Actions
+
+## 📋 Pré-requisitos
+
+- Python 3.9+
+- pip
+- Conta no Streamlit Cloud (para deploy)
+- Chave da API OpenWeatherMap
+- Conta no Codecov (para relatórios de cobertura)
+
+## 🔧 Instalação
+
+1. Clone o repositório:
 
 ```bash
 git clone https://github.com/seu-usuario/semprelimpa-piscinas.git
 cd semprelimpa-piscinas
 ```
 
-1. Crie um ambiente virtual e ative-o:
+1. Crie um ambiente virtual:
 
 ```bash
 python -m venv .venv
@@ -30,52 +73,96 @@ source .venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 ```
 
-## Configuração
+1. Configure as variáveis de ambiente:
 
-1. Crie um arquivo `.env` na raiz do projeto com as seguintes variáveis:
-
-```text
-WEATHER_API_KEY=sua_chave_api_openweathermap
-WHATSAPP_NUMBER=seu_numero_whatsapp
+```bash
+cp .env.example .env
+# Edite o arquivo .env com suas configurações
 ```
 
-1. Adicione uma imagem `logo.png` na raiz do projeto para o logo da empresa.
+## 🚀 Executando a Aplicação
 
-## Executando a aplicação
+1. Inicialize o banco de dados:
+
+```bash
+python init_db.py
+```
+
+1. Execute a aplicação:
 
 ```bash
 streamlit run streamlit_app.py
 ```
 
-A aplicação estará disponível em `http://localhost:8501`
+## 🧪 Testes
 
-## Funcionalidades
+Execute os testes com:
 
-### Públicas
+```bash
+pytest tests/ --cov=./ --cov-report=xml
+```
 
-- Homepage com galeria de fotos "Antes & Depois"
-- Lista de serviços disponíveis
-- Mapa da área de cobertura
-- Previsão do tempo
-- Formulário de solicitação de orçamento
+## 🔄 CI/CD
 
-### Administrativas
+O projeto utiliza GitHub Actions para CI/CD com três estágios:
 
-- Login de administrador
-- Gerenciamento de agendamentos
-- Cadastro e edição de serviços
-- Configuração de limites diários de atendimento
-- Gerenciamento da galeria de fotos
+1. **Testes**: Executa testes unitários e de integração
+1. **Staging**: Aplica migrações e valida o ambiente de staging
+1. **Produção**: Deploy para produção (apenas na branch main)
 
-## Credenciais padrão
+## 📦 Estrutura do Projeto
 
-- Usuário: piscineiro
-- Senha: senha123
+```text
+semprelimpa-piscinas/
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml
+├── data/
+│   ├── database_development.db
+│   ├── database_staging.db
+│   └── database_production.db
+├── tests/
+│   └── test_app.py
+├── .env.example
+├── .gitignore
+├── README.md
+├── backup.py
+├── db_utils.py
+├── feature_flags.py
+├── init_db.py
+├── migrations.py
+├── monitor.py
+├── requirements.txt
+└── streamlit_app.py
+```
 
-## Estrutura do banco de dados
+## 🔒 Segurança
 
-- `services`: Serviços oferecidos
-- `config`: Configurações de limites diários
-- `appointments`: Agendamentos
-- `users`: Usuários do sistema
-- `gallery`: Galeria de fotos antes/depois
+- Senhas armazenadas com hash SHA-256
+- Variáveis sensíveis em arquivos .env
+- Secrets do Streamlit para produção
+- Backup automático do banco de dados
+- Monitoramento de erros
+
+## 📈 Monitoramento
+
+- Logs de erros enviados por email
+- Backup automático do banco de dados
+- Relatórios de cobertura de testes
+- Monitoramento de performance
+
+## 🤝 Contribuindo
+
+1. Faça um fork do projeto
+1. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
+1. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
+1. Push para a branch (`git push origin feature/AmazingFeature`)
+1. Abra um Pull Request
+
+## 📝 Licença
+
+Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+
+## 📞 Contato
+
+Para mais informações, entre em contato pelo [WhatsApp](https://wa.me/seu-numero) ou [Instagram](https://instagram.com/semprelimpa_piscinas).
