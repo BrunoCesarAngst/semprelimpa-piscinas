@@ -21,8 +21,8 @@ ENVIRONMENT = os.getenv('ENVIRONMENT', 'production')
 DB_PATH = os.path.join('data', f'database_{ENVIRONMENT}.db')
 
 # Configurações do ambiente
-if os.getenv('TESTING', 'false').lower() == 'true':
-    # Modo de teste - usar variáveis de ambiente
+if os.getenv('TESTING', 'false').lower() == 'true' or os.getenv('VALIDATE_DB', 'false').lower() == 'true':
+    # Modo de teste ou validação - usar variáveis de ambiente
     WEATHER_API_KEY = os.getenv('WEATHER_API_KEY', 'test_key')
     WHATSAPP_LINK = os.getenv('WHATSAPP_LINK', 'https://wa.me/test')
 else:

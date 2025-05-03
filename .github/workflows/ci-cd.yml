@@ -54,7 +54,7 @@ jobs:
 
       - name: Validate staging
         run: |
-          ENVIRONMENT=staging python -c "from streamlit_app import get_db_connection; conn = get_db_connection(); conn.close()"
+          ENVIRONMENT=staging VALIDATE_DB=true python -c "from streamlit_app import get_db_connection; conn = get_db_connection(); conn.close()"
 
   deploy:
     needs: staging
