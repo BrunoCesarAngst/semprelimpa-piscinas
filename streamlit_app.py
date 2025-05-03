@@ -10,6 +10,8 @@ import hashlib
 from dotenv import load_dotenv
 import urllib.parse
 import webbrowser
+from migrations import run_migrations
+from feature_flags import feature_flags
 
 # Carregar variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -88,151 +90,13 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def gerar_agendamentos_teste():
-    """Gera agendamentos de teste APENAS em ambiente de desenvolvimento"""
-    # Verificar se estamos em ambiente de desenvolvimento
-    if not os.getenv('ENVIRONMENT') == 'development':
-        return
-
-    conn = get_db_connection()
-    c = conn.cursor()
-
-    # Obter o número de WhatsApp de desenvolvimento
-    whatsapp_dev = os.getenv('WHATSAPP_LINK_DEV', '51999999999')  # Número padrão caso não esteja configurado
-
-    # Dados de teste
-    agendamentos_teste = [
-        ("João Silva", "51999999999", "Rua das Flores, 123", "2024-05-01", "09:00", 1, "confirmado", None),
-        ("Maria Santos", "51988888888", "Av. Principal, 456", "2024-05-02", "14:30", 2, "novo", None),
-        ("Pedro Oliveira", "51977777777", "Rua do Sol, 789", "2024-05-03", "10:00", 3, "novo", None),
-        ("Ana Costa", "51966666666", "Rua da Praia, 101", "2024-05-04", "15:00", 4, "novo", None),
-        ("Carlos Pereira", "51955555555", "Av. Beira Mar, 202", "2024-05-05", "11:30", 1, "novo", None),
-        ("Bruno Angst", whatsapp_dev, "Av. Beira Mar, 202", "2024-05-05", "11:30", 1, "novo", None),
-    ]
-
-    # Inserir agendamentos
-    c.executemany(
-        "INSERT INTO appointments (name, contact, address, date, time, service_id, status, image_path) VALUES (?,?,?,?,?,?,?,?)",
-        agendamentos_teste
-    )
-
-    conn.commit()
-    conn.close()
-
 def init_db():
-    """Inicializa o banco de dados apropriado para o ambiente atual"""
-    # Garantir que o diretório data existe
-    os.makedirs('data', exist_ok=True)
-
-    # Criar conexão com o banco de dados
+    """Inicializa o banco de dados com as migrações necessárias"""
     conn = get_db_connection()
-    c = conn.cursor()
-
-    # Tabelas
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS services (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            description TEXT,
-            price REAL,
-            active INTEGER DEFAULT 1
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS config (
-            weekday INTEGER PRIMARY KEY,
-            max_appointments INTEGER
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS appointments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            contact TEXT,
-            address TEXT,
-            date TEXT,
-            time TEXT,
-            service_id INTEGER,
-            status TEXT,
-            image_path TEXT
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password_hash TEXT,
-            is_dev INTEGER DEFAULT 0
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS gallery (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            before_path TEXT,
-            after_path TEXT,
-            caption TEXT
-        )
-    ''')
-
-    # Verificar se a coluna is_dev existe, se não, adicionar
     try:
-        c.execute("SELECT is_dev FROM users LIMIT 1")
-    except sqlite3.OperationalError:
-        c.execute("ALTER TABLE users ADD COLUMN is_dev INTEGER DEFAULT 0")
-
-    # Usuário padrão (apenas em produção)
-    if ENVIRONMENT == 'production':
-        c.execute("SELECT COUNT(*) FROM users")
-        if c.fetchone()[0] == 0:
-            default_hash = hash_pwd("senha123")
-            c.execute("INSERT INTO users(username,password_hash,is_dev) VALUES (?,?,?)", ("piscineiro", default_hash, 0))
-
-    # Usuário de desenvolvimento (apenas em desenvolvimento)
-    if ENVIRONMENT == 'development':
-        dev_hash = hash_pwd("a")
-        c.execute("INSERT OR IGNORE INTO users(username,password_hash,is_dev) VALUES (?,?,?)", ("dev", dev_hash, 1))
-
-    # Configuração padrão (0 = ilimitado)
-    for wd in range(7):
-        c.execute("INSERT OR IGNORE INTO config(weekday,max_appointments) VALUES (?,?)", (wd, 0))
-
-    # Serviços padrão
-    c.execute("SELECT COUNT(*) FROM services")
-    if c.fetchone()[0] == 0:
-        default_services = [
-            (
-                "Pacote Anual",
-                "Manutenção completa da piscina durante todo o ano, incluindo limpeza semanal, controle químico e manutenção do equipamento. Ideal para quem quer manter sua piscina sempre em perfeitas condições.",
-                1200.00
-            ),
-            (
-                "Manutenção Semanal",
-                "Limpeza semanal da piscina, incluindo aspiração, escovação, tratamento da água e verificação do pH. Garante a qualidade da água e o bom funcionamento do sistema.",
-                150.00
-            ),
-            (
-                "Limpeza Pesada",
-                "Limpeza profunda da piscina, incluindo aspiração, escovação, tratamento de algas, limpeza de bordas e verificação completa do sistema. Indicado para piscinas que precisam de uma limpeza mais intensa.",
-                300.00
-            ),
-            (
-                "Controle Químico",
-                "Análise e ajuste dos parâmetros químicos da água (pH, cloro, alcalinidade, etc). Garante a qualidade da água e a saúde dos usuários.",
-                80.00
-            )
-        ]
-        for name, desc, price in default_services:
-            c.execute(
-                "INSERT INTO services (name, description, price, active) VALUES (?,?,?,?)",
-                (name, desc, price, 1)
-            )
-
-    conn.commit()
-    conn.close()
-
-    # Gerar agendamentos de teste apenas em desenvolvimento
-    if ENVIRONMENT == 'development':
-        gerar_agendamentos_teste()
+        run_migrations(conn)
+    finally:
+        conn.close()
 
 def get_weather():
     # Previsão atual
@@ -269,14 +133,15 @@ def homepage():
         st.image("logo.png", width=200)
     st.title("Sempre Limpa Piscinas")
 
-    st.header("Antes & Depois")
-    conn = get_db_connection()
-    gallery = conn.execute("SELECT * FROM gallery").fetchall()
-    conn.close()
-    for item in gallery:
-        cols = st.columns(2)
-        cols[0].image(item['before_path'], caption=item['caption'] + " (Antes)")
-        cols[1].image(item['after_path'], caption=item['caption'] + " (Depois)")
+    if feature_flags.is_enabled('GALERIA_FOTOS'):
+        st.header("Antes & Depois")
+        conn = get_db_connection()
+        gallery = conn.execute("SELECT * FROM gallery").fetchall()
+        conn.close()
+        for item in gallery:
+            cols = st.columns(2)
+            cols[0].image(item['before_path'], caption=item['caption'] + " (Antes)")
+            cols[1].image(item['after_path'], caption=item['caption'] + " (Depois)")
 
     st.header("Serviços")
     conn = get_db_connection()
@@ -300,6 +165,10 @@ def homepage():
     )
 
 def mapa_tempo():
+    if not feature_flags.is_enabled('PREVISAO_TEMPO'):
+        st.warning("A previsão do tempo está temporariamente indisponível.")
+        return
+
     st.title("Área de Cobertura & Previsão do Tempo")
 
     # Coordenadas exatas de Arroio do Sal
@@ -392,6 +261,132 @@ def mapa_tempo():
 def contato():
     st.title("Solicitar Orçamento")
 
+    if feature_flags.is_enabled('NOVO_SISTEMA_AGENDAMENTO'):
+        # Novo sistema de agendamento
+        novo_sistema_agendamento()
+    else:
+        # Sistema antigo de agendamento
+        sistema_antigo_agendamento()
+
+def novo_sistema_agendamento():
+    """Implementação do novo sistema de agendamento"""
+    st.info("Novo sistema de agendamento em beta!")
+
+    # Verificar se o usuário está logado
+    if not st.session_state.get('logged_in'):
+        st.warning("Por favor, faça login ou cadastre-se para solicitar um orçamento.")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Login"):
+                st.session_state['current_page'] = "Login"
+                st.rerun()
+        with col2:
+            if st.button("Cadastro"):
+                st.session_state['current_page'] = "Cadastro"
+                st.rerun()
+        return
+
+    # Verificar se existem serviços disponíveis
+    conn = get_db_connection()
+    services = conn.execute("SELECT id, name, price FROM services WHERE active=1").fetchall()
+    conn.close()
+
+    if not services:
+        st.warning("No momento não temos serviços disponíveis para agendamento. Por favor, entre em contato conosco pelo WhatsApp.")
+        wa_link = WHATSAPP_LINK
+        st.markdown(
+            f"<a href='{wa_link}' target='_blank'><img src='https://cdn-icons-png.flaticon.com/512/733/733585.png' width='24'/> Fale conosco pelo WhatsApp</a>",
+            unsafe_allow_html=True
+        )
+        return
+
+    # Novo sistema com calendário visual
+    st.subheader("Selecione a data e horário")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        date = st.date_input("Data desejada", format="DD/MM/YYYY")
+
+    with col2:
+        time = st.time_input("Horário desejado")
+
+    # Verificar disponibilidade
+    conn = get_db_connection()
+    wd = date.weekday()
+    max_appt = conn.execute("SELECT max_appointments FROM config WHERE weekday=?", (wd,)).fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) FROM appointments WHERE date=?", (date.isoformat(),)).fetchone()[0]
+    conn.close()
+
+    if max_appt and count >= max_appt:
+        st.error("Dia cheio, escolha outra data.")
+        return
+
+    # Seleção de serviço
+    st.subheader("Selecione o serviço")
+    svc_dict = {s['name']: (s['id'], s['price']) for s in services}
+    svc = st.selectbox("Serviço", options=list(svc_dict.keys()))
+    service_id, price = svc_dict[svc]
+
+    # Pagamento online se disponível
+    if feature_flags.is_enabled('PAGAMENTO_ONLINE'):
+        st.markdown(f"**Valor do serviço:** R$ {price:,.2f}".replace(',', '_').replace('.', ',').replace('_', '.'))
+        if st.checkbox("Pagar online (10% de desconto)"):
+            price = price * 0.9
+            st.markdown(f"**Valor com desconto:** R$ {price:,.2f}".replace(',', '_').replace('.', ',').replace('_', '.'))
+
+    # Formulário de agendamento
+    with st.form("novo_agendamento"):
+        # Obter dados do usuário logado
+        conn = get_db_connection()
+        user = conn.execute("SELECT name, phone, address FROM users WHERE id = ?",
+                          (st.session_state['user_id'],)).fetchone()
+        conn.close()
+
+        name = st.text_input("Nome", value=user['name'])
+        contact = st.text_input("Telefone", value=user['phone'])
+        address = st.text_input("Endereço da piscina", value=user['address'])
+        image = st.file_uploader("Foto da piscina (opcional)", type=['png','jpg','jpeg'])
+        submitted = st.form_submit_button("Confirmar Agendamento")
+
+        if submitted:
+            img_path = None
+            if image:
+                os.makedirs("uploads", exist_ok=True)
+                img_path = os.path.join("uploads", image.name)
+                with open(img_path, "wb") as f:
+                    f.write(image.getbuffer())
+
+            conn = get_db_connection()
+            conn.execute(
+                "INSERT INTO appointments (name, contact, address, date, time, service_id, status, image_path, user_id) VALUES (?,?,?,?,?,?,?,?,?)",
+                (name, contact, address, date.isoformat(), time.strftime("%H:%M"), service_id, 'novo', img_path, st.session_state['user_id'])
+            )
+            conn.commit()
+
+            st.success("Agendamento realizado com sucesso!")
+
+            # Integração com WhatsApp se disponível
+            if feature_flags.is_enabled('INTEGRACAO_WHATSAPP'):
+                wa_message = f"Olá! Seu agendamento foi confirmado para {date.strftime('%d/%m/%Y')} às {time.strftime('%H:%M')}. Valor: R$ {price:,.2f}"
+                wa_link = f"{WHATSAPP_LINK}&text={urllib.parse.quote(wa_message)}"
+                st.markdown(f"[Clique aqui para enviar mensagem no WhatsApp]({wa_link})")
+
+def sistema_antigo_agendamento():
+    """Implementação do sistema antigo de agendamento"""
+    # Verificar se o usuário está logado
+    if not st.session_state.get('logged_in'):
+        st.warning("Por favor, faça login ou cadastre-se para solicitar um orçamento.")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Login"):
+                st.session_state['current_page'] = "Login"
+                st.rerun()
+        with col2:
+            if st.button("Cadastro"):
+                st.session_state['current_page'] = "Cadastro"
+                st.rerun()
+        return
+
     # Verificar se existem serviços disponíveis
     conn = get_db_connection()
     services = conn.execute("SELECT id, name, price FROM services WHERE active=1").fetchall()
@@ -414,9 +409,15 @@ def contato():
     st.markdown(f"**Valor do serviço:** R$ {price:,.2f}".replace(',', '_').replace('.', ',').replace('_', '.'))
 
     with st.form("orcamento"):
-        name = st.text_input("Nome")
-        contact = st.text_input("Telefone ou Email")
-        address = st.text_input("Endereço da piscina")
+        # Obter dados do usuário logado
+        conn = get_db_connection()
+        user = conn.execute("SELECT name, phone, address FROM users WHERE id = ?",
+                          (st.session_state['user_id'],)).fetchone()
+        conn.close()
+
+        name = st.text_input("Nome", value=user['name'])
+        contact = st.text_input("Telefone", value=user['phone'])
+        address = st.text_input("Endereço da piscina", value=user['address'])
         date = st.date_input("Data desejada", format="DD/MM/YYYY")
         time = st.time_input("Horário desejado")
         image = st.file_uploader("Foto da piscina (opcional)", type=['png','jpg','jpeg'])
@@ -438,110 +439,130 @@ def contato():
                     with open(img_path, "wb") as f:
                         f.write(image.getbuffer())
                 conn.execute(
-                    "INSERT INTO appointments (name, contact, address, date, time, service_id, status, image_path) VALUES (?,?,?,?,?,?,?,?)",
-                    (name, contact, address, date.isoformat(), time.strftime("%H:%M"), service_id, 'novo', img_path)
+                    "INSERT INTO appointments (name, contact, address, date, time, service_id, status, image_path, user_id) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (name, contact, address, date.isoformat(), time.strftime("%H:%M"), service_id, 'novo', img_path, st.session_state['user_id'])
                 )
-                conn.commit()
                 st.success("Recebemos seu pedido! Entraremos em contato em breve.")
             conn.close()
 
-# ---------- AUTENTICAÇÃO & PÁGINAS ADMIN ----------
-def login():
+def cadastro():
+    st.title("Cadastro de Usuário")
+
+    with st.form("cadastro_form"):
+        username = st.text_input("Nome de usuário")
+        password = st.text_input("Senha", type="password")
+        confirm_password = st.text_input("Confirmar senha", type="password")
+        name = st.text_input("Nome completo")
+        email = st.text_input("Email")
+        phone = st.text_input("Telefone")
+        address = st.text_input("Endereço")
+
+        submitted = st.form_submit_button("Cadastrar")
+
+        if submitted:
+            # Validações
+            if not all([username, password, confirm_password, name, email, phone, address]):
+                st.error("Por favor, preencha todos os campos.")
+                return
+
+            if password != confirm_password:
+                st.error("As senhas não coincidem.")
+                return
+
+            if len(password) < 6:
+                st.error("A senha deve ter pelo menos 6 caracteres.")
+                return
+
+            # Verificar se o usuário já existe
+            conn = get_db_connection()
+            existing_user = conn.execute("SELECT id FROM users WHERE username = ? OR email = ?",
+                                       (username, email)).fetchone()
+            if existing_user:
+                st.error("Nome de usuário ou email já cadastrado.")
+                conn.close()
+                return
+
+            # Criar novo usuário
+            try:
+                password_hash = hash_pwd(password)
+                conn.execute("""
+                    INSERT INTO users (username, password_hash, name, email, phone, address)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (username, password_hash, name, email, phone, address))
+                conn.commit()
+                st.success("Cadastro realizado com sucesso! Faça login para continuar.")
+                st.session_state['current_page'] = "Login"
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao cadastrar: {str(e)}")
+            finally:
+                conn.close()
+
+def login_usuario():
+    st.title("Login de Usuário")
+
+    with st.form("login_form"):
+        username = st.text_input("Nome de usuário")
+        password = st.text_input("Senha", type="password")
+        submitted = st.form_submit_button("Entrar")
+
+        if submitted:
+            if not username or not password:
+                st.error("Por favor, preencha todos os campos.")
+                return
+
+            conn = get_db_connection()
+            user = conn.execute("""
+                SELECT id, username, password_hash, name, email, phone, address
+                FROM users
+                WHERE username = ? AND is_dev = 0
+            """, (username,)).fetchone()
+            conn.close()
+
+            if user and check_pwd(user['password_hash'], password):
+                st.session_state['logged_in'] = True
+                st.session_state['user_id'] = user['id']
+                st.session_state['username'] = user['username']
+                st.session_state['is_admin'] = False
+                st.success(f"Bem-vindo, {user['name']}!")
+                st.session_state['current_page'] = "Home"
+                st.rerun()
+            else:
+                st.error("Credenciais inválidas.")
+
+def login_admin():
     st.title("Login Administrativo")
-    username = st.text_input("Usuário")
-    password = st.text_input("Senha", type='password')
-    if st.button("Entrar"):
-        conn = get_db_connection()
-        row = conn.execute("SELECT password_hash, is_dev FROM users WHERE username=?", (username,)).fetchone()
-        conn.close()
-        if row and check_pwd(row['password_hash'], password):
-            st.session_state['logged_in'] = True
-            st.session_state['is_dev'] = bool(row['is_dev'])
-            if row['is_dev']:
-                st.success("Bem-vindo, Desenvolvedor! 🚀")
-            st.rerun()
-        else:
-            st.error("Credenciais inválidas.")
 
-def enviar_mensagem_whatsapp(contato, nome, data, hora, servico, status):
-    """Envia uma mensagem via WhatsApp para o cliente sobre o status do agendamento"""
-    try:
-        # Formatar e validar o número de telefone
-        contato = ''.join(filter(str.isdigit, contato))
+    with st.form("admin_login_form"):
+        username = st.text_input("Usuário Administrador")
+        password = st.text_input("Senha", type="password")
+        submitted = st.form_submit_button("Entrar")
 
-        # Se o número começar com 'wa.me' ou 'https', extrair apenas os dígitos
-        if 'wa.me' in str(contato) or 'https' in str(contato):
-            contato = ''.join(filter(str.isdigit, contato.split('/')[-1]))
+        if submitted:
+            if not username or not password:
+                st.error("Por favor, preencha todos os campos.")
+                return
 
-        # Verificar se o número tem o formato correto
-        if len(contato) < 10 or len(contato) > 13:
-            print(f"❌ Erro: Número de telefone inválido: {contato}")
-            st.error("Número de telefone inválido. Deve ter entre 10 e 13 dígitos.")
-            return False
+            conn = get_db_connection()
+            admin = conn.execute("""
+                SELECT id, username, password_hash, name, is_dev
+                FROM users
+                WHERE username = ? AND is_dev = 1
+            """, (username,)).fetchone()
+            conn.close()
 
-        # Adicionar código do país se necessário
-        if not contato.startswith("55"):
-            contato = "55" + contato
+            if admin and check_pwd(admin['password_hash'], password):
+                st.session_state['logged_in'] = True
+                st.session_state['user_id'] = admin['id']
+                st.session_state['username'] = admin['username']
+                st.session_state['is_admin'] = True
+                st.success(f"Bem-vindo, {admin['name']}! 🚀")
+                st.session_state['current_page'] = "Agendamentos"
+                st.rerun()
+            else:
+                st.error("Credenciais inválidas ou sem permissão de administrador.")
 
-        # Verificar se o DDD é válido
-        if not contato[2:4].isdigit():
-            print(f"❌ Erro: DDD inválido no número: {contato}")
-            st.error("DDD inválido no número de telefone.")
-            return False
-
-        # Formatar a mensagem baseada no status
-        if status == 'confirmado':
-            mensagem = f"""
-Olá {nome}! 👋
-
-Seu agendamento foi confirmado! 🎉
-
-📅 Data: {data}
-⏰ Horário: {hora}
-🛠️ Serviço: {servico}
-
-Estamos ansiosos para atendê-lo! Se precisar de qualquer alteração, entre em contato conosco.
-
-Atenciosamente,
-Equipe Sempre Limpa Piscinas
-"""
-        else:  # rejeitado
-            mensagem = f"""
-Olá {nome}! 👋
-
-Infelizmente não conseguimos atender seu agendamento. 😔
-
-📅 Data solicitada: {data}
-⏰ Horário: {hora}
-🛠️ Serviço: {servico}
-
-Por favor, entre em contato conosco para tentarmos encontrar uma data alternativa.
-
-Atenciosamente,
-Equipe Sempre Limpa Piscinas
-"""
-
-        # Codificar a mensagem para URL
-        mensagem_codificada = urllib.parse.quote(mensagem)
-
-        # Criar o link do WhatsApp
-        whatsapp_link = f"https://wa.me/{contato}?text={mensagem_codificada}"
-
-        # Log para debug
-        print(f"🔍 Debug - Número formatado: {contato}")
-        print(f"🔍 Debug - Status: {status}")
-        print(f"🔍 Debug - Link gerado: {whatsapp_link}")
-
-        # Abrir o WhatsApp automaticamente
-        webbrowser.open(whatsapp_link)
-
-        return True
-
-    except Exception as e:
-        print(f"❌ Erro ao gerar link do WhatsApp: {str(e)}")
-        st.error(f"Erro ao gerar link do WhatsApp: {str(e)}")
-        return False
-
+# ---------- AUTENTICAÇÃO & PÁGINAS ADMIN ----------
 def admin_agendamentos():
     st.subheader("Agendamentos")
     conn = get_db_connection()
@@ -674,7 +695,7 @@ def admin_agendamentos():
         """, unsafe_allow_html=True)
 
         # Botões de ação e imagem (se existir)
-        col1, col2, col3 = st.columns([1, 1, 2])
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
         with col1:
             if row['status'] == 'novo':
                 if st.button("Confirmar", key=f"conf_{row['id']}"):
@@ -682,14 +703,7 @@ def admin_agendamentos():
                     conn.execute("UPDATE appointments SET status='confirmado' WHERE id=?", (row['id'],))
                     conn.commit()
                     conn.close()
-
-                    # Formatar data para o padrão brasileiro
-                    data_formatada = datetime.strptime(row['date'], "%Y-%m-%d").strftime("%d/%m/%Y")
-
-                    # Enviar mensagem de confirmação
-                    st.success("Agendamento confirmado! Abrindo WhatsApp...")
-                    enviar_mensagem_whatsapp(row['contact'], row['name'], data_formatada, row['time'], row['service'], 'confirmado')
-
+                    st.success("Agendamento confirmado!")
                     st.rerun()
         with col2:
             if row['status'] == 'novo':
@@ -698,16 +712,23 @@ def admin_agendamentos():
                     conn.execute("UPDATE appointments SET status='rejeitado' WHERE id=?", (row['id'],))
                     conn.commit()
                     conn.close()
-
-                    # Formatar data para o padrão brasileiro
-                    data_formatada = datetime.strptime(row['date'], "%Y-%m-%d").strftime("%d/%m/%Y")
-
-                    # Enviar mensagem de rejeição
-                    st.warning("Agendamento rejeitado! Abrindo WhatsApp...")
-                    enviar_mensagem_whatsapp(row['contact'], row['name'], data_formatada, row['time'], row['service'], 'rejeitado')
-
+                    st.warning("Agendamento rejeitado!")
                     st.rerun()
         with col3:
+            if st.button("🗑️ Deletar", key=f"del_{row['id']}"):
+                # Confirmar a exclusão
+                if st.session_state.get('confirm_delete') == row['id']:
+                    conn = get_db_connection()
+                    conn.execute("DELETE FROM appointments WHERE id=?", (row['id'],))
+                    conn.commit()
+                    conn.close()
+                    st.error(f"Agendamento #{row['id']} deletado com sucesso!")
+                    st.session_state['confirm_delete'] = None
+                    st.rerun()
+                else:
+                    st.session_state['confirm_delete'] = row['id']
+                    st.warning(f"Clique novamente em '🗑️ Deletar' para confirmar a exclusão do agendamento #{row['id']}")
+        with col4:
             if row['image_path'] and isinstance(row['image_path'], str) and row['image_path'].strip() != "None":
                 st.image(row['image_path'], width=200, caption="Foto da piscina")
 
@@ -829,45 +850,255 @@ def admin_gallery():
             else:
                 st.error("Preencha todos os campos!")
 
+def detectar_dispositivo():
+    """Detecta o tipo de dispositivo que está acessando o aplicativo"""
+    user_agent = st.session_state.get('user_agent', '')
+
+    # Detectar dispositivo móvel
+    if 'Mobile' in user_agent or 'Android' in user_agent or 'iPhone' in user_agent:
+        return 'mobile'
+    # Detectar tablet
+    elif 'iPad' in user_agent or 'Tablet' in user_agent:
+        return 'tablet'
+    # Se não for nenhum dos acima, considera como desktop
+    else:
+        return 'desktop'
+
+def meus_agendamentos():
+    st.title("Meus Agendamentos")
+
+    # Obter agendamentos do usuário
+    conn = get_db_connection()
+    df = pd.read_sql("""
+        SELECT a.id, a.name, a.contact, a.address, a.date, a.time, s.name as service, a.status, a.image_path
+        FROM appointments a
+        JOIN services s ON a.service_id = s.id
+        WHERE a.user_id = ?
+        ORDER BY a.date DESC, a.time DESC
+    """, conn, params=(st.session_state['user_id'],))
+    conn.close()
+
+    if df.empty:
+        st.info("Você ainda não tem agendamentos.")
+        return
+
+    # Estilo CSS para os cards
+    st.markdown("""
+        <style>
+        .card {
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .card.confirmado {
+            border-left: 5px solid #4CAF50;
+        }
+        .card.novo {
+            border-left: 5px solid #2196F3;
+        }
+        .card.rejeitado {
+            border-left: 5px solid #F44336;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .card-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+        .card-status {
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        .status-confirmado {
+            background-color: #E8F5E9;
+            color: #2E7D32;
+        }
+        .status-novo {
+            background-color: #E3F2FD;
+            color: #1565C0;
+        }
+        .status-rejeitado {
+            background-color: #FFEBEE;
+            color: #C62828;
+        }
+        .card-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+        .card-item {
+            margin-bottom: 5px;
+        }
+        .card-label {
+            font-size: 0.8em;
+            color: #666;
+        }
+        .card-value {
+            font-size: 1em;
+            color: #333;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    for _, row in df.iterrows():
+        # Formatar data e hora para padrão brasileiro
+        try:
+            data_hora = datetime.strptime(f"{row['date']} {row['time']}", "%Y-%m-%d %H:%M")
+            data_hora_br = data_hora.strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            data_hora_br = f"{row['date']} {row['time']}"
+
+        # Determinar a classe de status
+        status_class = {
+            'confirmado': 'status-confirmado',
+            'rejeitado': 'status-rejeitado',
+            'novo': 'status-novo'
+        }.get(row['status'], 'status-novo')
+
+        # Determinar o texto do status
+        status_text = {
+            'confirmado': 'Confirmado',
+            'rejeitado': 'Rejeitado',
+            'novo': 'Em Análise'
+        }.get(row['status'], 'Em Análise')
+
+        # Criar o card
+        st.markdown(f"""
+            <div class="card {row['status']}">
+                <div class="card-header">
+                    <div class="card-title">#{row['id']} - {row['service']}</div>
+                    <div class="card-status {status_class}">{status_text}</div>
+                </div>
+                <div class="card-content">
+                    <div class="card-item">
+                        <div class="card-label">Data e Hora</div>
+                        <div class="card-value">{data_hora_br}</div>
+                    </div>
+                    <div class="card-item">
+                        <div class="card-label">Endereço</div>
+                        <div class="card-value">{row['address']}</div>
+                    </div>
+                    <div class="card-item">
+                        <div class="card-label">Contato</div>
+                        <div class="card-value">{row['contact']}</div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Exibir imagem se existir
+        if row['image_path'] and isinstance(row['image_path'], str) and row['image_path'].strip() != "None":
+            st.image(row['image_path'], width=200, caption="Foto da piscina")
+
 # ---------- ROTEAMENTO ----------
 def main():
     # Inicializar banco de dados
     init_db()
 
-    # Menu lateral
-    st.sidebar.title("Menu")
+    # Inicializar estados da sessão
     if 'logged_in' not in st.session_state:
         st.session_state['logged_in'] = False
+    if 'current_page' not in st.session_state:
+        st.session_state['current_page'] = "Home"
+    if 'user_agent' not in st.session_state:
+        st.session_state['user_agent'] = st.query_params.get('user_agent', [''])[0]
+    if 'is_admin' not in st.session_state:
+        st.session_state['is_admin'] = False
+
+    # Detectar dispositivo
+    dispositivo = detectar_dispositivo()
+
+    # Menu lateral
+    st.sidebar.title("Menu")
 
     if st.session_state['logged_in']:
-        page = st.sidebar.radio(
-            "Navegação",
-            ["Agendamentos", "Serviços", "Configurações", "Galeria", "Logout"]
-        )
-        if page == "Logout":
-            st.session_state['logged_in'] = False
-            st.rerun()
-        elif page == "Agendamentos":
-            admin_agendamentos()
-        elif page == "Serviços":
-            admin_services()
-        elif page == "Configurações":
-            admin_config()
-        elif page == "Galeria":
-            admin_gallery()
+        # Obter informações do usuário
+        conn = get_db_connection()
+        if st.session_state['is_admin']:
+            user = conn.execute("SELECT name, is_dev FROM users WHERE id = ?",
+                              (st.session_state['user_id'],)).fetchone()
+            user_type = "Administrador"
+        else:
+            user = conn.execute("SELECT name FROM users WHERE id = ?",
+                              (st.session_state['user_id'],)).fetchone()
+            user_type = "Usuário"
+        conn.close()
+
+        # Exibir informações do usuário no menu lateral
+        st.sidebar.markdown("---")
+        st.sidebar.markdown(f"**Usuário:** {user['name']}")
+        st.sidebar.markdown(f"**Tipo:** {user_type}")
+        st.sidebar.markdown(f"**Dispositivo:** {dispositivo.upper()}")
+
+        if st.session_state['is_admin']:
+            # Menu para administradores
+            st.session_state['current_page'] = st.sidebar.radio(
+                "Navegação",
+                ["Agendamentos", "Serviços", "Configurações", "Galeria", "Logout"],
+                key="nav_admin"
+            )
+
+            if st.session_state['current_page'] == "Logout":
+                st.session_state['logged_in'] = False
+                st.session_state['is_admin'] = False
+                st.session_state['current_page'] = "Home"
+                st.rerun()
+            elif st.session_state['current_page'] == "Agendamentos":
+                admin_agendamentos()
+            elif st.session_state['current_page'] == "Serviços":
+                admin_services()
+            elif st.session_state['current_page'] == "Configurações":
+                admin_config()
+            elif st.session_state['current_page'] == "Galeria":
+                admin_gallery()
+        else:
+            # Menu para usuários comuns
+            st.session_state['current_page'] = st.sidebar.radio(
+                "Navegação",
+                ["Home", "Área de Cobertura", "Contato", "Meus Agendamentos", "Logout"],
+                key="nav_user"
+            )
+
+            if st.session_state['current_page'] == "Logout":
+                st.session_state['logged_in'] = False
+                st.session_state['current_page'] = "Home"
+                st.rerun()
+            elif st.session_state['current_page'] == "Home":
+                homepage()
+            elif st.session_state['current_page'] == "Área de Cobertura":
+                mapa_tempo()
+            elif st.session_state['current_page'] == "Contato":
+                contato()
+            elif st.session_state['current_page'] == "Meus Agendamentos":
+                meus_agendamentos()
     else:
-        page = st.sidebar.radio(
+        # Menu para usuários não logados
+        st.session_state['current_page'] = st.sidebar.radio(
             "Navegação",
-            ["Home", "Área de Cobertura", "Contato", "Login"]
+            ["Home", "Área de Cobertura", "Login", "Cadastro", "Admin"],
+            key="nav_not_logged_in"
         )
-        if page == "Home":
+
+        if st.session_state['current_page'] == "Home":
             homepage()
-        elif page == "Área de Cobertura":
+        elif st.session_state['current_page'] == "Área de Cobertura":
             mapa_tempo()
-        elif page == "Contato":
-            contato()
-        elif page == "Login":
-            login()
+        elif st.session_state['current_page'] == "Login":
+            login_usuario()
+        elif st.session_state['current_page'] == "Cadastro":
+            cadastro()
+        elif st.session_state['current_page'] == "Admin":
+            login_admin()
 
     # Ocultar barra superior, rodapé e header do Streamlit
     hide_streamlit_style = """
