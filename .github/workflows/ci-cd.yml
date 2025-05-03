@@ -60,6 +60,14 @@ jobs:
       - name: Criar diretório do banco de dados
         run: mkdir -p data
 
+      - name: Criar .env.staging
+        run: |
+          echo "ENVIRONMENT=staging" > .env.staging
+          echo "DB_PATH=data/database_staging.db" >> .env.staging
+          echo "ADMIN_SECRET=${{ secrets.ADMIN_SECRET_STAGING }}" >> .env.staging
+          echo "WEATHER_API_KEY=${{ secrets.WEATHER_API_KEY_STAGING }}" >> .env.staging
+          echo "WHATSAPP_LINK=${{ secrets.WHATSAPP_LINK }}" >> .env.staging
+
       - name: Run migrations on staging
         run: alembic upgrade head
 
