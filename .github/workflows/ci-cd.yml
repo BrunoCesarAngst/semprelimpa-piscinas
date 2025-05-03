@@ -57,9 +57,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Criar diretório do banco de dados
+        run: mkdir -p data
+
       - name: Run migrations on staging
-        run: |
-          alembic upgrade head
+        run: alembic upgrade head
 
       - name: Validate staging
         run: |
