@@ -81,6 +81,14 @@ WEATHER_TRANSLATIONS = {
 }
 
 # ---------- FUNÇÕES AUXILIARES ----------
+def init_db():
+    """Inicializa o banco de dados com as migrações necessárias"""
+    conn = get_db_connection()
+    try:
+        run_migrations(conn)
+    finally:
+        conn.close()
+
 def get_weather():
     # Previsão atual
     url_current = f"http://api.openweathermap.org/data/2.5/weather?q=Arroio do Sal,BR&units=metric&appid={WEATHER_API_KEY}&lang=pt_br"
