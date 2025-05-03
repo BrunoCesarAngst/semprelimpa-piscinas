@@ -92,9 +92,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run migrations on production
+      - name: Criar diretório do banco de dados
+        run: mkdir -p data
+
+      - name: Criar .env.production
         run: |
-          ENVIRONMENT=production python init_db.py
+          echo "ENVIRONMENT=production" > .env.production
+          echo "DB_PATH=data/database_production.db" >> .env.production
+          echo "ADMIN_SECRET=${{ secrets.ADMIN_SECRET_PRODUCTION }}" >> .env.production
+          echo "WEATHER_API_KEY=${{ secrets.WEATHER_API_KEY_PRODUCTION }}" >> .env.production
+          echo "WHATSAPP_LINK=${{ secrets.WHATSAPP_LINK }}" >> .env.production
+
+      - name: Run migrations on production
+        run: alembic upgrade head
 
       - name: Deploy to production
         run: |
