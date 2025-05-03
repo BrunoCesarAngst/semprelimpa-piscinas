@@ -7,28 +7,19 @@ from datetime import datetime
 import os
 import urllib.parse
 import webbrowser
-from migrations import run_migrations
 from feature_flags import feature_flags
-from db_utils import get_db_connection, hash_pwd, check_pwd
-from dotenv import load_dotenv
-
-# Carregar variáveis de ambiente do arquivo .env
-load_dotenv()
+from config import settings
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+from models import User, Service, Appointment, Config, Gallery, Base
+from utils import hash_pwd, check_pwd
 
 # ---------- CONFIGURAÇÕES ----------
-# Configuração do banco de dados baseada no ambiente
-ENVIRONMENT = os.getenv('ENVIRONMENT', 'production')
-DB_PATH = os.path.join('data', f'database_{ENVIRONMENT}.db')
-
-# Configurações do ambiente
-if os.getenv('TESTING', 'false').lower() == 'true' or os.getenv('VALIDATE_DB', 'false').lower() == 'true':
-    # Modo de teste ou validação - usar variáveis de ambiente
-    WEATHER_API_KEY = os.getenv('WEATHER_API_KEY', 'test_key')
-    WHATSAPP_LINK = os.getenv('WHATSAPP_LINK', 'https://wa.me/test')
-else:
-    # Modo normal - usar secrets do Streamlit
-    WEATHER_API_KEY = st.secrets["WEATHER_API_KEY"]
-    WHATSAPP_LINK = st.secrets["WHATSAPP_LINK"]
+ENVIRONMENT = settings.ENVIRONMENT
+ADMIN_SECRET = settings.ADMIN_SECRET
+DB_PATH = settings.DB_PATH
+WEATHER_API_KEY = settings.WEATHER_API_KEY
+WHATSAPP_LINK = settings.WHATSAPP_LINK
 
 # Dicionário de tradução do tempo
 WEATHER_TRANSLATIONS = {
@@ -80,14 +71,63 @@ WEATHER_TRANSLATIONS = {
     'thunderstorm with heavy drizzle': 'trovoada com garoa forte'
 }
 
+# Configuração global da engine e sessionmaker
+engine = create_engine(f"sqlite:///{DB_PATH}")
+Session = sessionmaker(bind=engine)
+
 # ---------- FUNÇÕES AUXILIARES ----------
-def init_db():
-    """Inicializa o banco de dados com as migrações necessárias"""
-    conn = get_db_connection()
+def create_default_services():
+    """Cria os serviços padrão se não existirem"""
+    session = Session()
+
+    default_services = [
+        (
+            "Pacote Anual",
+            "Manutenção completa da piscina durante todo o ano, incluindo limpeza semanal, controle químico e manutenção do equipamento. Ideal para quem quer manter sua piscina sempre em perfeitas condições.",
+            1200.00
+        ),
+        (
+            "Manutenção Semanal",
+            "Limpeza semanal da piscina, incluindo aspiração, escovação, tratamento da água e verificação do pH. Garante a qualidade da água e o bom funcionamento do sistema.",
+            150.00
+        ),
+        (
+            "Limpeza Pesada",
+            "Limpeza profunda da piscina, incluindo aspiração, escovação, tratamento de algas, limpeza de bordas e verificação completa do sistema. Indicado para piscinas que precisam de uma limpeza mais intensa.",
+            300.00
+        ),
+        (
+            "Controle Químico",
+            "Análise e ajuste dos parâmetros químicos da água (pH, cloro, alcalinidade, etc). Garante a qualidade da água e a saúde dos usuários.",
+            80.00
+        )
+    ]
+
     try:
-        run_migrations(conn)
+        for name, description, price in default_services:
+            # Verifica se o serviço já existe
+            existing = session.query(Service).filter_by(name=name).first()
+            if not existing:
+                new_service = Service(
+                    name=name,
+                    description=description,
+                    price=price,
+                    active=1
+                )
+                session.add(new_service)
+
+        session.commit()
+        st.success("Serviços padrão criados com sucesso!")
+    except Exception as e:
+        session.rollback()
+        st.error(f"Erro ao criar serviços padrão: {str(e)}")
     finally:
-        conn.close()
+        session.close()
+
+def init_db():
+    """Inicializa o banco de dados"""
+    Base.metadata.create_all(engine)
+    create_default_services()  # Adiciona os serviços padrão
 
 def get_weather():
     # Previsão atual
@@ -124,23 +164,21 @@ def homepage():
         st.image("logo.png", width=200)
     st.title("Sempre Limpa Piscinas")
 
+    session = Session()
     if feature_flags.is_enabled('GALERIA_FOTOS'):
         st.header("Antes & Depois")
-        conn = get_db_connection()
-        gallery = conn.execute("SELECT * FROM gallery").fetchall()
-        conn.close()
+        gallery = session.query(Gallery).all()
         for item in gallery:
             cols = st.columns(2)
-            cols[0].image(item['before_path'], caption=item['caption'] + " (Antes)")
-            cols[1].image(item['after_path'], caption=item['caption'] + " (Depois)")
+            cols[0].image(item.before_path, caption=f"{item.caption} (Antes)")
+            cols[1].image(item.after_path, caption=f"{item.caption} (Depois)")
 
     st.header("Serviços")
-    conn = get_db_connection()
-    services = conn.execute("SELECT * FROM services WHERE active=1").fetchall()
-    conn.close()
+    services = session.query(Service).filter_by(active=1).all()
     for srv in services:
-        st.subheader(srv['name'])
-        st.write(srv['description'])
+        st.subheader(srv.name)
+        st.write(srv.description)
+    session.close()
 
     # WhatsApp link
     wa_link = WHATSAPP_LINK
@@ -252,11 +290,30 @@ def mapa_tempo():
 def contato():
     st.title("Solicitar Orçamento")
 
+    # Verificar se existem serviços disponíveis
+    session = Session()
+    services = session.query(Service).filter_by(active=1).all()
+    session.close()
+
+    if not services:
+        st.warning("""
+            No momento não temos serviços disponíveis para agendamento online.
+            Por favor, entre em contato conosco pelo WhatsApp para verificar a disponibilidade.
+        """)
+
+        # Link do WhatsApp
+        wa_link = WHATSAPP_LINK
+        st.markdown(
+            f"<a href='{wa_link}' target='_blank' style='display: inline-block; padding: 10px 20px; background-color: #25D366; color: white; text-decoration: none; border-radius: 5px;'>"
+            f"<img src='https://cdn-icons-png.flaticon.com/512/733/733585.png' width='24' style='vertical-align: middle; margin-right: 8px;'/>"
+            f"Fale conosco pelo WhatsApp</a>",
+            unsafe_allow_html=True
+        )
+        return
+
     if feature_flags.is_enabled('NOVO_SISTEMA_AGENDAMENTO'):
-        # Novo sistema de agendamento
         novo_sistema_agendamento()
     else:
-        # Sistema antigo de agendamento
         sistema_antigo_agendamento()
 
 def novo_sistema_agendamento():
@@ -278,10 +335,8 @@ def novo_sistema_agendamento():
         return
 
     # Verificar se existem serviços disponíveis
-    conn = get_db_connection()
-    services = conn.execute("SELECT id, name, price FROM services WHERE active=1").fetchall()
-    conn.close()
-
+    session = Session()
+    services = session.query(Service).filter_by(active=1).all()
     if not services:
         st.warning("No momento não temos serviços disponíveis para agendamento. Por favor, entre em contato conosco pelo WhatsApp.")
         wa_link = WHATSAPP_LINK
@@ -302,11 +357,9 @@ def novo_sistema_agendamento():
         time = st.time_input("Horário desejado")
 
     # Verificar disponibilidade
-    conn = get_db_connection()
     wd = date.weekday()
-    max_appt = conn.execute("SELECT max_appointments FROM config WHERE weekday=?", (wd,)).fetchone()[0]
-    count = conn.execute("SELECT COUNT(*) FROM appointments WHERE date=?", (date.isoformat(),)).fetchone()[0]
-    conn.close()
+    max_appt = session.query(Config).filter_by(weekday=wd).first().max_appointments
+    count = session.query(Appointment).filter_by(date=date.isoformat()).count()
 
     if max_appt and count >= max_appt:
         st.error("Dia cheio, escolha outra data.")
@@ -314,7 +367,7 @@ def novo_sistema_agendamento():
 
     # Seleção de serviço
     st.subheader("Selecione o serviço")
-    svc_dict = {s['name']: (s['id'], s['price']) for s in services}
+    svc_dict = {s.name: (s.id, s.price) for s in services}
     svc = st.selectbox("Serviço", options=list(svc_dict.keys()))
     service_id, price = svc_dict[svc]
 
@@ -328,14 +381,11 @@ def novo_sistema_agendamento():
     # Formulário de agendamento
     with st.form("novo_agendamento"):
         # Obter dados do usuário logado
-        conn = get_db_connection()
-        user = conn.execute("SELECT name, phone, address FROM users WHERE id = ?",
-                          (st.session_state['user_id'],)).fetchone()
-        conn.close()
+        user = session.query(User).filter_by(id=st.session_state['user_id']).first()
 
-        name = st.text_input("Nome", value=user['name'])
-        contact = st.text_input("Telefone", value=user['phone'])
-        address = st.text_input("Endereço da piscina", value=user['address'])
+        name = st.text_input("Nome", value=user.name)
+        contact = st.text_input("Telefone", value=user.phone)
+        address = st.text_input("Endereço da piscina", value=user.address)
         image = st.file_uploader("Foto da piscina (opcional)", type=['png','jpg','jpeg'])
         submitted = st.form_submit_button("Confirmar Agendamento")
 
@@ -347,12 +397,19 @@ def novo_sistema_agendamento():
                 with open(img_path, "wb") as f:
                     f.write(image.getbuffer())
 
-            conn = get_db_connection()
-            conn.execute(
-                "INSERT INTO appointments (name, contact, address, date, time, service_id, status, image_path, user_id) VALUES (?,?,?,?,?,?,?,?,?)",
-                (name, contact, address, date.isoformat(), time.strftime("%H:%M"), service_id, 'novo', img_path, st.session_state['user_id'])
+            new_appointment = Appointment(
+                name=name,
+                contact=contact,
+                address=address,
+                date=date.isoformat(),
+                time=time.strftime("%H:%M"),
+                service_id=service_id,
+                status='novo',
+                image_path=img_path,
+                user_id=st.session_state['user_id']
             )
-            conn.commit()
+            session.add(new_appointment)
+            session.commit()
 
             st.success("Agendamento realizado com sucesso!")
 
@@ -379,10 +436,8 @@ def sistema_antigo_agendamento():
         return
 
     # Verificar se existem serviços disponíveis
-    conn = get_db_connection()
-    services = conn.execute("SELECT id, name, price FROM services WHERE active=1").fetchall()
-    conn.close()
-
+    session = Session()
+    services = session.query(Service).filter_by(active=1).all()
     if not services:
         st.warning("No momento não temos serviços disponíveis para agendamento. Por favor, entre em contato conosco pelo WhatsApp.")
         wa_link = WHATSAPP_LINK
@@ -392,7 +447,7 @@ def sistema_antigo_agendamento():
         )
         return
 
-    svc_dict = {s['name']: (s['id'], s['price']) for s in services}
+    svc_dict = {s.name: (s.id, s.price) for s in services}
 
     # Selectbox para escolher o serviço (fora do formulário)
     svc = st.selectbox("Serviço", options=list(svc_dict.keys()))
@@ -401,14 +456,11 @@ def sistema_antigo_agendamento():
 
     with st.form("orcamento"):
         # Obter dados do usuário logado
-        conn = get_db_connection()
-        user = conn.execute("SELECT name, phone, address FROM users WHERE id = ?",
-                          (st.session_state['user_id'],)).fetchone()
-        conn.close()
+        user = session.query(User).filter_by(id=st.session_state['user_id']).first()
 
-        name = st.text_input("Nome", value=user['name'])
-        contact = st.text_input("Telefone", value=user['phone'])
-        address = st.text_input("Endereço da piscina", value=user['address'])
+        name = st.text_input("Nome", value=user.name)
+        contact = st.text_input("Telefone", value=user.phone)
+        address = st.text_input("Endereço da piscina", value=user.address)
         date = st.date_input("Data desejada", format="DD/MM/YYYY")
         time = st.time_input("Horário desejado")
         image = st.file_uploader("Foto da piscina (opcional)", type=['png','jpg','jpeg'])
@@ -416,9 +468,8 @@ def sistema_antigo_agendamento():
 
         if submitted:
             wd = date.weekday()
-            conn = get_db_connection()
-            max_appt = conn.execute("SELECT max_appointments FROM config WHERE weekday=?", (wd,)).fetchone()[0]
-            count = conn.execute("SELECT COUNT(*) FROM appointments WHERE date=?", (date.isoformat(),)).fetchone()[0]
+            max_appt = session.query(Config).filter_by(weekday=wd).first().max_appointments
+            count = session.query(Appointment).filter_by(date=date.isoformat()).count()
 
             if max_appt and count >= max_appt:
                 st.error("Dia cheio, escolha outra data.")
@@ -429,16 +480,25 @@ def sistema_antigo_agendamento():
                     img_path = os.path.join("uploads", image.name)
                     with open(img_path, "wb") as f:
                         f.write(image.getbuffer())
-                conn.execute(
-                    "INSERT INTO appointments (name, contact, address, date, time, service_id, status, image_path, user_id) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (name, contact, address, date.isoformat(), time.strftime("%H:%M"), service_id, 'novo', img_path, st.session_state['user_id'])
+
+                new_appointment = Appointment(
+                    user_id=st.session_state['user_id'],
+                    service_id=service_id,
+                    date=date,
+                    time=time,
+                    status='novo',
+                    address=address,
+                    price=price,
+                    image_path=img_path,
+                    created_at=datetime.now().isoformat()
                 )
+                session.add(new_appointment)
                 st.success("Recebemos seu pedido! Entraremos em contato em breve.")
-            conn.close()
+            session.commit()
+            session.close()
 
 def cadastro():
     st.title("Cadastro de Usuário")
-
     with st.form("cadastro_form"):
         username = st.text_input("Nome de usuário")
         password = st.text_input("Senha", type="password")
@@ -447,6 +507,9 @@ def cadastro():
         email = st.text_input("Email")
         phone = st.text_input("Telefone")
         address = st.text_input("Endereço")
+
+        # Campo secreto para código de administrador
+        admin_code = st.text_input("Código de Administrador (opcional)", type="password")
 
         submitted = st.form_submit_button("Cadastrar")
 
@@ -465,33 +528,39 @@ def cadastro():
                 return
 
             # Verificar se o usuário já existe
-            conn = get_db_connection()
-            existing_user = conn.execute("SELECT id FROM users WHERE username = ? OR email = ?",
-                                       (username, email)).fetchone()
+            session = Session()
+            existing_user = session.query(User).filter(
+                (User.username == username) | (User.email == email)
+            ).first()
             if existing_user:
                 st.error("Nome de usuário ou email já cadastrado.")
-                conn.close()
+                session.close()
                 return
 
-            # Criar novo usuário
             try:
                 password_hash = hash_pwd(password)
-                conn.execute("""
-                    INSERT INTO users (username, password_hash, name, email, phone, address)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (username, password_hash, name, email, phone, address))
-                conn.commit()
+                is_admin = int(admin_code == ADMIN_SECRET)
+                new_user = User(
+                    username=username,
+                    password=password_hash,
+                    name=name,
+                    email=email,
+                    phone=phone,
+                    address=address,
+                    is_admin=is_admin
+                )
+                session.add(new_user)
+                session.commit()
                 st.success("Cadastro realizado com sucesso! Faça login para continuar.")
                 st.session_state['current_page'] = "Login"
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao cadastrar: {str(e)}")
             finally:
-                conn.close()
+                session.close()
 
 def login_usuario():
     st.title("Login de Usuário")
-
     with st.form("login_form"):
         username = st.text_input("Nome de usuário")
         password = st.text_input("Senha", type="password")
@@ -502,20 +571,16 @@ def login_usuario():
                 st.error("Por favor, preencha todos os campos.")
                 return
 
-            conn = get_db_connection()
-            user = conn.execute("""
-                SELECT id, username, password_hash, name, email, phone, address
-                FROM users
-                WHERE username = ? AND is_dev = 0
-            """, (username,)).fetchone()
-            conn.close()
+            session = Session()
+            user = session.query(User).filter_by(username=username).first()
+            session.close()
 
-            if user and check_pwd(user['password_hash'], password):
+            if user and check_pwd(user.password, password):
                 st.session_state['logged_in'] = True
-                st.session_state['user_id'] = user['id']
-                st.session_state['username'] = user['username']
+                st.session_state['user_id'] = user.id
+                st.session_state['username'] = user.username
                 st.session_state['is_admin'] = False
-                st.success(f"Bem-vindo, {user['name']}!")
+                st.success(f"Bem-vindo, {user.name}!")
                 st.session_state['current_page'] = "Home"
                 st.rerun()
             else:
@@ -534,20 +599,16 @@ def login_admin():
                 st.error("Por favor, preencha todos os campos.")
                 return
 
-            conn = get_db_connection()
-            admin = conn.execute("""
-                SELECT id, username, password_hash, name, is_dev
-                FROM users
-                WHERE username = ? AND is_dev = 1
-            """, (username,)).fetchone()
-            conn.close()
+            session = Session()
+            admin = session.query(User).filter_by(username=username, is_admin=1).first()
+            session.close()
 
-            if admin and check_pwd(admin['password_hash'], password):
+            if admin and check_pwd(admin.password, password):
                 st.session_state['logged_in'] = True
-                st.session_state['user_id'] = admin['id']
-                st.session_state['username'] = admin['username']
+                st.session_state['user_id'] = admin.id
+                st.session_state['username'] = admin.username
                 st.session_state['is_admin'] = True
-                st.success(f"Bem-vindo, {admin['name']}! 🚀")
+                st.success(f"Bem-vindo, {admin.username}! 🚀")
                 st.session_state['current_page'] = "Agendamentos"
                 st.rerun()
             else:
@@ -556,21 +617,20 @@ def login_admin():
 # ---------- AUTENTICAÇÃO & PÁGINAS ADMIN ----------
 def admin_agendamentos():
     st.subheader("Agendamentos")
-    conn = get_db_connection()
-    df = pd.read_sql("""
-        SELECT a.id, a.name, a.contact, a.address, a.date, a.time, s.name as service, a.status, a.image_path
-        FROM appointments a
-        JOIN services s ON a.service_id=s.id
-        ORDER BY
-            CASE WHEN a.status = 'confirmado' THEN 0
-                 WHEN a.status = 'rejeitado' THEN 2
-                 ELSE 1 END,
-            a.date,
-            a.time
-    """, conn)
-    conn.close()
+    session = Session()
+    agendamentos = (
+        session.query(Appointment, User, Service)
+        .join(User, Appointment.user_id == User.id)
+        .join(Service, Appointment.service_id == Service.id)
+        .order_by(
+            # Ordenação customizada pode ser feita em Python se necessário
+            Appointment.date, Appointment.time
+        )
+        .all()
+    )
+    session.close()
 
-    if df.empty:
+    if not agendamentos:
         st.info("Nenhum agendamento encontrado.")
         return
 
@@ -642,178 +702,251 @@ def admin_agendamentos():
         </style>
     """, unsafe_allow_html=True)
 
-    for _, row in df.iterrows():
+    for _, (appointment, user, service) in enumerate(agendamentos):
         # Formatar data e hora para padrão brasileiro
         try:
-            data_hora = datetime.strptime(f"{row['date']} {row['time']}", "%Y-%m-%d %H:%M")
+            data_hora = datetime.strptime(f"{appointment.date} {appointment.time}", "%Y-%m-%d %H:%M")
             data_hora_br = data_hora.strftime("%d/%m/%Y %H:%M")
         except Exception:
-            data_hora_br = f"{row['date']} {row['time']}"
+            data_hora_br = f"{appointment.date} {appointment.time}"
 
         # Determinar a classe de status
         status_class = {
             'confirmado': 'status-confirmado',
             'rejeitado': 'status-rejeitado',
             'novo': 'status-novo'
-        }.get(row['status'], 'status-novo')
+        }.get(appointment.status, 'status-novo')
+
+        # Determinar o texto do status
+        status_text = {
+            'confirmado': 'Confirmado',
+            'rejeitado': 'Rejeitado',
+            'novo': 'Em Análise'
+        }.get(appointment.status, 'Em Análise')
 
         # Criar o card
         st.markdown(f"""
-            <div class="card {row['status']}">
+            <div class="card {appointment.status}">
                 <div class="card-header">
-                    <div class="card-title">#{row['id']} - {row['name']}</div>
-                    <div class="card-status {status_class}">{row['status'].capitalize()}</div>
+                    <div class="card-title">#{appointment.id} - {service.name}</div>
+                    <div class="card-status {status_class}">{status_text}</div>
                 </div>
                 <div class="card-content">
-                    <div class="card-item">
-                        <div class="card-label">Contato</div>
-                        <div class="card-value">{row['contact']}</div>
-                    </div>
-                    <div class="card-item">
-                        <div class="card-label">Endereço</div>
-                        <div class="card-value">{row['address']}</div>
-                    </div>
                     <div class="card-item">
                         <div class="card-label">Data e Hora</div>
                         <div class="card-value">{data_hora_br}</div>
                     </div>
                     <div class="card-item">
-                        <div class="card-label">Serviço</div>
-                        <div class="card-value">{row['service']}</div>
+                        <div class="card-label">Endereço</div>
+                        <div class="card-value">{appointment.address}</div>
+                    </div>
+                    <div class="card-item">
+                        <div class="card-label">Cliente</div>
+                        <div class="card-value">{user.name}</div>
+                    </div>
+                    <div class="card-item">
+                        <div class="card-label">Telefone</div>
+                        <div class="card-value">{user.phone}</div>
+                    </div>
+                    <div class="card-item">
+                        <div class="card-label">Valor</div>
+                        <div class="card-value">R$ {appointment.price:,.2f}</div>
                     </div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
 
-        # Botões de ação e imagem (se existir)
+        # Exibir imagem se existir
+        if appointment.image_path and isinstance(appointment.image_path, str) and appointment.image_path.strip() != "None":
+            st.image(appointment.image_path, width=200, caption="Foto da piscina")
+
+        # Botões de ação
         col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
         with col1:
-            if row['status'] == 'novo':
-                if st.button("Confirmar", key=f"conf_{row['id']}"):
-                    conn = get_db_connection()
-                    conn.execute("UPDATE appointments SET status='confirmado' WHERE id=?", (row['id'],))
-                    conn.commit()
-                    conn.close()
+            if appointment.status == 'novo':
+                if st.button("Confirmar", key=f"conf_{appointment.id}"):
+                    session = Session()
+                    appt = session.query(Appointment).filter_by(id=appointment.id).first()
+                    if appt:
+                        appt.status = 'confirmado'
+                        session.commit()
+                    session.close()
                     st.success("Agendamento confirmado!")
                     st.rerun()
         with col2:
-            if row['status'] == 'novo':
-                if st.button("Rejeitar", key=f"rej_{row['id']}"):
-                    conn = get_db_connection()
-                    conn.execute("UPDATE appointments SET status='rejeitado' WHERE id=?", (row['id'],))
-                    conn.commit()
-                    conn.close()
+            if appointment.status == 'novo':
+                if st.button("Rejeitar", key=f"rej_{appointment.id}"):
+                    session = Session()
+                    appt = session.query(Appointment).filter_by(id=appointment.id).first()
+                    if appt:
+                        appt.status = 'rejeitado'
+                        session.commit()
+                    session.close()
                     st.warning("Agendamento rejeitado!")
                     st.rerun()
         with col3:
-            if st.button("🗑️ Deletar", key=f"del_{row['id']}"):
+            if st.button("🗑️ Deletar", key=f"del_{appointment.id}"):
                 # Confirmar a exclusão
-                if st.session_state.get('confirm_delete') == row['id']:
-                    conn = get_db_connection()
-                    conn.execute("DELETE FROM appointments WHERE id=?", (row['id'],))
-                    conn.commit()
-                    conn.close()
-                    st.error(f"Agendamento #{row['id']} deletado com sucesso!")
+                if st.session_state.get('confirm_delete') == appointment.id:
+                    session = Session()
+                    appt = session.query(Appointment).filter_by(id=appointment.id).first()
+                    if appt:
+                        session.delete(appt)
+                        session.commit()
+                    session.close()
+                    st.error(f"Agendamento #{appointment.id} deletado com sucesso!")
                     st.session_state['confirm_delete'] = None
                     st.rerun()
                 else:
-                    st.session_state['confirm_delete'] = row['id']
-                    st.warning(f"Clique novamente em '🗑️ Deletar' para confirmar a exclusão do agendamento #{row['id']}")
+                    st.session_state['confirm_delete'] = appointment.id
+                    st.warning(f"Clique novamente em '🗑️ Deletar' para confirmar a exclusão do agendamento #{appointment.id}")
         with col4:
-            if row['image_path'] and isinstance(row['image_path'], str) and row['image_path'].strip() != "None":
-                st.image(row['image_path'], width=200, caption="Foto da piscina")
+            if appointment.image_path and isinstance(appointment.image_path, str) and appointment.image_path.strip() != "None":
+                st.image(appointment.image_path, width=200, caption="Foto da piscina")
 
 def admin_services():
     st.subheader("Gerenciamento de Serviços")
 
-    # Tabela de serviços
-    conn = get_db_connection()
-    df = pd.read_sql("SELECT id, name, description, price, active FROM services", conn)
-    conn.close()
+    # Criar duas abas: Lista e Adicionar/Editar
+    tab1, tab2 = st.tabs(["Lista de Serviços", "Adicionar/Editar Serviço"])
 
-    # Renomear colunas para português
-    df = df.rename(columns={
-        'id': 'ID',
-        'name': 'Nome',
-        'description': 'Descrição',
-        'price': 'Preço (R$)',
-        'active': 'Ativo'
-    })
+    with tab1:
+        # Lista de serviços em formato de tabela
+        session = Session()
+        services = session.query(Service).all()
 
-    # Converter valores booleanos para Sim/Não
-    df['Ativo'] = df['Ativo'].map({1: 'Sim', 0: 'Não'})
-
-    # Formatar preço como moeda brasileira
-    df['Preço (R$)'] = df['Preço (R$)'].map(lambda x: f'R$ {x:,.2f}'.replace(',', '_').replace('.', ',').replace('_', '.'))
-
-    # Exibir tabela
-    st.dataframe(df, use_container_width=True)
-
-    # Formulário de edição
-    with st.expander("Adicionar/Editar Serviço"):
-        # Selecionar serviço existente para edição
-        services_list = df['Nome'].tolist()
-        services_list.insert(0, "Novo Serviço")
-        selected_service = st.selectbox("Selecione um serviço para editar ou 'Novo Serviço' para criar", options=services_list)
-
-        if selected_service == "Novo Serviço":
-            sid = 0
-            name = ""
-            desc = ""
-            price = 0.0
-            active = True
+        if not services:
+            st.info("Nenhum serviço cadastrado.")
         else:
-            conn = get_db_connection()
-            service = conn.execute(
-                "SELECT id, name, description, price, active FROM services WHERE name=?",
-                (selected_service,)
-            ).fetchone()
-            conn.close()
+            # Criar DataFrame para exibição
+            df = pd.DataFrame({
+                'ID': [s.id for s in services],
+                'Nome': [s.name for s in services],
+                'Descrição': [s.description for s in services],
+                'Preço': [f'R$ {s.price:,.2f}'.replace(',', '_').replace('.', ',').replace('_', '.') for s in services],
+                'Status': ['Ativo' if s.active else 'Inativo' for s in services]
+            })
 
-            sid = service['id']
-            name = service['name']
-            desc = service['description']
-            price = service['price']
-            active = bool(service['active'])
+            # Exibir tabela
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        session.close()
+
+    with tab2:
+        # Formulário para adicionar/editar serviço
+        session = Session()
+
+        # Selecionar serviço existente ou novo
+        services_list = [s.name for s in session.query(Service).all()]
+        services_list.insert(0, "Novo Serviço")
+        selected_service = st.selectbox(
+            "Selecione um serviço para editar ou 'Novo Serviço' para criar",
+            options=services_list
+        )
 
         # Campos do formulário
-        name = st.text_input("Nome do Serviço", value=name)
-        desc = st.text_area("Descrição", value=desc)
-        price = st.number_input("Preço (R$)", min_value=0.0, step=1.0, value=price)
-        active = st.checkbox("Serviço Ativo", value=active)
+        if selected_service == "Novo Serviço":
+            service = Service(
+                name="",
+                description="",
+                price=0.0,
+                active=1
+            )
+        else:
+            service = session.query(Service).filter_by(name=selected_service).first()
 
-        if st.button("Salvar Serviço"):
-            if not name or not desc:
-                st.error("Nome e descrição são obrigatórios!")
-            else:
-                conn = get_db_connection()
-                if sid:
-                    conn.execute(
-                        "UPDATE services SET name=?, description=?, price=?, active=? WHERE id=?",
-                        (name, desc, price, int(active), sid)
-                    )
-                else:
-                    conn.execute(
-                        "INSERT INTO services (name, description, price, active) VALUES (?,?,?,?)",
-                        (name, desc, price, int(active))
-                    )
-                conn.commit()
-                conn.close()
-                st.success("Serviço salvo com sucesso!")
-                st.rerun()
+        # Formulário
+        with st.form("service_form"):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                name = st.text_input("Nome do Serviço", value=service.name)
+                price = st.number_input(
+                    "Preço (R$)",
+                    min_value=0.0,
+                    step=1.0,
+                    value=float(service.price)
+                )
+
+            with col2:
+                active = st.checkbox("Serviço Ativo", value=bool(service.active))
+                description = st.text_area(
+                    "Descrição",
+                    value=service.description,
+                    height=100
+                )
+
+            # Botões de ação
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.form_submit_button("Salvar"):
+                    if not name:
+                        st.error("O nome do serviço é obrigatório!")
+                    else:
+                        service.name = name
+                        service.description = description
+                        service.price = price
+                        service.active = int(active)
+
+                        if selected_service == "Novo Serviço":
+                            session.add(service)
+
+                        session.commit()
+                        st.success("Serviço salvo com sucesso!")
+                        st.rerun()
+
+            with col2:
+                if st.form_submit_button("Cancelar"):
+                    st.rerun()
+
+            with col3:
+                if selected_service != "Novo Serviço" and st.form_submit_button("Excluir"):
+                    session.delete(service)
+                    session.commit()
+                    st.success("Serviço excluído com sucesso!")
+                    st.rerun()
+
+        session.close()
 
 def admin_config():
     st.subheader("Configurar Limites Diários")
-    conn = get_db_connection()
-    cfg = conn.execute("SELECT * FROM config ORDER BY weekday").fetchall()
-    for row in cfg:
-        wd_name = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'][row['weekday']]
-        val = st.number_input(f"{wd_name}", min_value=0, value=row['max_appointments'], key=f"cfg_{row['weekday']}")
-        conn.execute("UPDATE config SET max_appointments=? WHERE weekday=?", (val, row['weekday']))
-    conn.commit()
-    conn.close()
+
+    # Dias da semana em português
+    dias_semana = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+
+    # Criar ou atualizar configurações para cada dia
+    session = Session()
+    for dia in range(7):
+        config = session.query(Config).filter_by(weekday=dia).first()
+
+        # Se não existir configuração para este dia, criar uma nova
+        if not config:
+            config = Config(weekday=dia, max_appointments=5)
+            session.add(config)
+
+        # Interface para edição
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            st.markdown(f"**{dias_semana[dia]}**")
+        with col2:
+            novo_limite = st.number_input(
+                "Limite de agendamentos",
+                min_value=0,
+                value=config.max_appointments,
+                key=f"limite_{dia}"
+            )
+            config.max_appointments = novo_limite
+
+    # Botão para salvar todas as alterações
     if st.button("Salvar Configurações"):
-        st.success("Limites atualizados.")
+        session.commit()
+        st.success("Limites atualizados com sucesso!")
+
+    session.close()
 
 def admin_gallery():
     st.subheader("Galeria Antes & Depois")
@@ -830,13 +963,15 @@ def admin_gallery():
                     f.write(before.getbuffer())
                 with open(after_path, "wb") as f:
                     f.write(after.getbuffer())
-                conn = get_db_connection()
-                conn.execute(
-                    "INSERT INTO gallery (before_path, after_path, caption) VALUES (?,?,?)",
-                    (before_path, after_path, cap)
+                session = Session()
+                new_gallery = Gallery(
+                    before_path=before_path,
+                    after_path=after_path,
+                    caption=cap
                 )
-                conn.commit()
-                conn.close()
+                session.add(new_gallery)
+                session.commit()
+                session.close()
                 st.success("Fotos adicionadas à galeria!")
             else:
                 st.error("Preencha todos os campos!")
@@ -859,17 +994,16 @@ def meus_agendamentos():
     st.title("Meus Agendamentos")
 
     # Obter agendamentos do usuário
-    conn = get_db_connection()
-    df = pd.read_sql("""
-        SELECT a.id, a.name, a.contact, a.address, a.date, a.time, s.name as service, a.status, a.image_path
-        FROM appointments a
-        JOIN services s ON a.service_id = s.id
-        WHERE a.user_id = ?
-        ORDER BY a.date DESC, a.time DESC
-    """, conn, params=(st.session_state['user_id'],))
-    conn.close()
+    session = Session()
+    agendamentos = (
+        session.query(Appointment, Service)
+        .filter(Appointment.user_id == st.session_state['user_id'])
+        .order_by(Appointment.date.desc(), Appointment.time.desc())
+        .all()
+    )
+    session.close()
 
-    if df.empty:
+    if not agendamentos:
         st.info("Você ainda não tem agendamentos.")
         return
 
@@ -941,33 +1075,33 @@ def meus_agendamentos():
         </style>
     """, unsafe_allow_html=True)
 
-    for _, row in df.iterrows():
+    for _, (appointment, service) in enumerate(agendamentos):
         # Formatar data e hora para padrão brasileiro
         try:
-            data_hora = datetime.strptime(f"{row['date']} {row['time']}", "%Y-%m-%d %H:%M")
+            data_hora = datetime.strptime(f"{appointment.date} {appointment.time}", "%Y-%m-%d %H:%M")
             data_hora_br = data_hora.strftime("%d/%m/%Y %H:%M")
         except Exception:
-            data_hora_br = f"{row['date']} {row['time']}"
+            data_hora_br = f"{appointment.date} {appointment.time}"
 
         # Determinar a classe de status
         status_class = {
             'confirmado': 'status-confirmado',
             'rejeitado': 'status-rejeitado',
             'novo': 'status-novo'
-        }.get(row['status'], 'status-novo')
+        }.get(appointment.status, 'status-novo')
 
         # Determinar o texto do status
         status_text = {
             'confirmado': 'Confirmado',
             'rejeitado': 'Rejeitado',
             'novo': 'Em Análise'
-        }.get(row['status'], 'Em Análise')
+        }.get(appointment.status, 'Em Análise')
 
         # Criar o card
         st.markdown(f"""
-            <div class="card {row['status']}">
+            <div class="card {appointment.status}">
                 <div class="card-header">
-                    <div class="card-title">#{row['id']} - {row['service']}</div>
+                    <div class="card-title">#{appointment.id} - {service.name}</div>
                     <div class="card-status {status_class}">{status_text}</div>
                 </div>
                 <div class="card-content">
@@ -977,19 +1111,19 @@ def meus_agendamentos():
                     </div>
                     <div class="card-item">
                         <div class="card-label">Endereço</div>
-                        <div class="card-value">{row['address']}</div>
+                        <div class="card-value">{appointment.address}</div>
                     </div>
                     <div class="card-item">
                         <div class="card-label">Contato</div>
-                        <div class="card-value">{row['contact']}</div>
+                        <div class="card-value">{appointment.contact}</div>
                     </div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
 
         # Exibir imagem se existir
-        if row['image_path'] and isinstance(row['image_path'], str) and row['image_path'].strip() != "None":
-            st.image(row['image_path'], width=200, caption="Foto da piscina")
+        if appointment.image_path and isinstance(appointment.image_path, str) and appointment.image_path.strip() != "None":
+            st.image(appointment.image_path, width=200, caption="Foto da piscina")
 
 # ---------- ROTEAMENTO ----------
 def main():
@@ -1014,20 +1148,18 @@ def main():
 
     if st.session_state['logged_in']:
         # Obter informações do usuário
-        conn = get_db_connection()
+        session = Session()
         if st.session_state['is_admin']:
-            user = conn.execute("SELECT name, is_dev FROM users WHERE id = ?",
-                              (st.session_state['user_id'],)).fetchone()
+            user = session.query(User).filter_by(id=st.session_state['user_id']).first()
             user_type = "Administrador"
         else:
-            user = conn.execute("SELECT name FROM users WHERE id = ?",
-                              (st.session_state['user_id'],)).fetchone()
+            user = session.query(User).filter_by(id=st.session_state['user_id']).first()
             user_type = "Usuário"
-        conn.close()
+        session.close()
 
         # Exibir informações do usuário no menu lateral
         st.sidebar.markdown("---")
-        st.sidebar.markdown(f"**Usuário:** {user['name']}")
+        st.sidebar.markdown(f"**Usuário:** {user.name}")
         st.sidebar.markdown(f"**Tipo:** {user_type}")
         st.sidebar.markdown(f"**Dispositivo:** {dispositivo.upper()}")
 

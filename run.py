@@ -1,25 +1,18 @@
 import os
 import sys
+
+# Defina o ambiente ANTES de importar qualquer outro módulo
+if len(sys.argv) > 1:
+    os.environ["ENVIRONMENT"] = sys.argv[1]
+else:
+    os.environ["ENVIRONMENT"] = "development"
+
 import subprocess
+from config import settings
 
-def run_app(environment):
-    """Executa a aplicação no ambiente especificado"""
-    env = os.environ.copy()
-    env['ENVIRONMENT'] = environment
+def main():
+    # Inicia o Streamlit
+    subprocess.run(["streamlit", "run", "streamlit_app.py"])
 
-    print(f"🚀 Iniciando aplicação no ambiente: {environment}")
-    print(f"📁 Banco de dados: data/database_{environment}.db")
-
-    try:
-        subprocess.run(['streamlit', 'run', 'streamlit_app.py'], env=env)
-    except KeyboardInterrupt:
-        print("\n👋 Aplicação encerrada pelo usuário")
-    except Exception as e:
-        print(f"❌ Erro ao executar a aplicação: {e}")
-
-if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in ['development', 'staging', 'production']:
-        print("Uso: python run.py [development|staging|production]")
-        sys.exit(1)
-
-    run_app(sys.argv[1])
+if __name__ == '__main__':
+    main()

@@ -1,67 +1,102 @@
 import pytest
-import os
-import sqlite3
-from migrations import run_migrations, get_db_version
-from db_utils import get_db_connection, hash_pwd, check_pwd
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from models import Base, User, Service, Appointment, Config
+from utils import hash_pwd
+from datetime import date, time
 
-# Configurar variáveis de ambiente para teste
-os.environ['TESTING'] = 'true'
-os.environ['DB_PATH'] = 'data/test_database.db'
+# Configuração do banco de dados de teste
+TEST_DB_PATH = "sqlite:///test_database.db"
+engine = create_engine(TEST_DB_PATH)
+Session = sessionmaker(bind=engine)
 
 @pytest.fixture
-def test_db():
-    """Fixture para criar um banco de dados temporário para testes"""
-    # Garantir que o diretório data existe
-    os.makedirs('data', exist_ok=True)
+def db_session():
+    """Cria uma sessão de banco de dados para os testes"""
+    Base.metadata.drop_all(engine)      # Limpa todas as tabelas
+    Base.metadata.create_all(engine)    # Cria todas as tabelas
+    session = Session()
+    yield session
+    session.rollback()
+    session.close()
 
-    # Criar banco de dados temporário
-    conn = sqlite3.connect(os.environ['DB_PATH'])
-    conn.row_factory = sqlite3.Row
+def test_create_user(db_session):
+    """Testa a criação de um usuário"""
+    user = User(
+        username="testuser",
+        password=hash_pwd("testpass"),
+        name="Test User",
+        email="test@example.com",
+        phone="1234567890",
+        address="Test Address"
+    )
+    db_session.add(user)
+    db_session.commit()
 
-    # Aplicar migrações
-    run_migrations(conn)
+    assert user.id is not None
+    assert user.username == "testuser"
+    assert user.email == "test@example.com"
 
-    yield conn
+def test_create_service(db_session):
+    """Testa a criação de um serviço"""
+    service = Service(
+        name="Test Service",
+        description="Test Description",
+        price=100.00,
+        active=1
+    )
+    db_session.add(service)
+    db_session.commit()
 
-    # Limpar após os testes
-    conn.close()
-    os.remove(os.environ['DB_PATH'])
+    assert service.id is not None
+    assert service.name == "Test Service"
+    assert service.price == 100.00
 
-def test_migrations(test_db):
-    """Testa se as migrações foram aplicadas corretamente"""
-    cursor = test_db.cursor()
+def test_create_appointment(db_session):
+    """Testa a criação de um agendamento"""
+    # Criar usuário e serviço primeiro
+    user = User(
+        username="testuser",
+        password=hash_pwd("testpass"),
+        name="Test User"
+    )
+    service = Service(
+        name="Test Service",
+        price=100.00,
+        active=1
+    )
+    db_session.add(user)
+    db_session.add(service)
+    db_session.commit()
 
-    # Verificar versão atual do banco
-    version = get_db_version(test_db)
-    assert version > 0
+    # Criar agendamento
+    appointment = Appointment(
+        user_id=user.id,
+        service_id=service.id,
+        date=date(2024, 1, 1),
+        time=time(10, 0),
+        status="novo",
+        address="Test Address",
+        price=100.00
+    )
+    db_session.add(appointment)
+    db_session.commit()
 
-    # Verificar se as tabelas necessárias existem
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = [row['name'] for row in cursor.fetchall()]
-    assert 'users' in tables
-    assert 'appointments' in tables
+    assert appointment.id is not None
+    assert appointment.user_id == user.id
+    assert appointment.service_id == service.id
+    assert appointment.status == "novo"
 
-def test_password_hashing():
-    """Testa as funções de hash de senha"""
-    password = "test123"
-    hashed = hash_pwd(password)
+def test_create_config(db_session):
+    """Testa a criação de configurações"""
+    for weekday in range(7):
+        config = Config(
+            weekday=weekday,
+            max_appointments=5
+        )
+        db_session.add(config)
+    db_session.commit()
 
-    # Verificar se o hash é diferente da senha original
-    assert hashed != password
-
-    # Verificar se a verificação funciona
-    assert check_pwd(hashed, password)
-    assert not check_pwd(hashed, "wrong_password")
-
-def test_db_connection():
-    """Testa a conexão com o banco de dados"""
-    conn = get_db_connection()
-    assert conn is not None
-
-    # Verificar se é possível executar uma consulta
-    cursor = conn.cursor()
-    cursor.execute("SELECT 1")
-    result = cursor.fetchone()
-    assert result[0] == 1
-
-    conn.close()
+    configs = db_session.query(Config).all()
+    assert len(configs) == 7
+    assert all(c.max_appointments == 5 for c in configs)
