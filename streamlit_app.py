@@ -997,6 +997,7 @@ def meus_agendamentos():
     session = Session()
     agendamentos = (
         session.query(Appointment, Service)
+        .join(Service, Appointment.service_id == Service.id)
         .filter(Appointment.user_id == st.session_state['user_id'])
         .order_by(Appointment.date.desc(), Appointment.time.desc())
         .all()
@@ -1076,6 +1077,11 @@ def meus_agendamentos():
     """, unsafe_allow_html=True)
 
     for _, (appointment, service) in enumerate(agendamentos):
+        # Obter dados do usuário relacionado ao agendamento
+        session = Session()
+        user = session.query(User).filter_by(id=appointment.user_id).first()
+        session.close()
+
         # Formatar data e hora para padrão brasileiro
         try:
             data_hora = datetime.strptime(f"{appointment.date} {appointment.time}", "%Y-%m-%d %H:%M")
@@ -1115,7 +1121,7 @@ def meus_agendamentos():
                     </div>
                     <div class="card-item">
                         <div class="card-label">Contato</div>
-                        <div class="card-value">{appointment.contact}</div>
+                        <div class="card-value">{user.phone}</div>
                     </div>
                 </div>
             </div>
