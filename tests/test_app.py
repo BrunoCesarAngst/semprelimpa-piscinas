@@ -4,6 +4,23 @@ import os
 from migrations import run_migrations, get_db_version, set_db_version
 from streamlit_app import get_db_connection, hash_pwd, check_pwd
 
+@pytest.fixture(autouse=True)
+def setup_test_environment():
+    """Configura o ambiente de teste"""
+    # Configurar variáveis de ambiente para teste
+    os.environ['ENVIRONMENT'] = 'test'
+    os.environ['TESTING'] = 'true'
+    os.environ['WEATHER_API_KEY'] = 'test_key'
+    os.environ['WHATSAPP_LINK'] = 'https://wa.me/test'
+
+    yield
+
+    # Limpar variáveis de ambiente após os testes
+    os.environ.pop('ENVIRONMENT', None)
+    os.environ.pop('TESTING', None)
+    os.environ.pop('WEATHER_API_KEY', None)
+    os.environ.pop('WHATSAPP_LINK', None)
+
 @pytest.fixture
 def test_db():
     """Cria um banco de dados temporário para testes"""
@@ -17,9 +34,6 @@ def test_db():
     # Criar novo banco
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-
-    # Configurar ambiente de teste
-    os.environ['ENVIRONMENT'] = 'test'
 
     yield conn
 
@@ -73,9 +87,6 @@ def test_password_hashing():
 
 def test_db_connection():
     """Testa a conexão com o banco de dados"""
-    # Configurar ambiente de teste
-    os.environ['ENVIRONMENT'] = 'test'
-
     # Testar conexão
     conn = get_db_connection()
     assert conn is not None

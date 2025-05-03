@@ -20,8 +20,16 @@ load_dotenv()
 # Configuração do banco de dados baseada no ambiente
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'production')
 DB_PATH = os.path.join('data', f'database_{ENVIRONMENT}.db')
-WEATHER_API_KEY = st.secrets["WEATHER_API_KEY"]
-WHATSAPP_LINK = st.secrets["WHATSAPP_LINK"]
+
+# Configurações do ambiente
+if os.getenv('TESTING', 'false').lower() == 'true':
+    # Modo de teste - usar variáveis de ambiente
+    WEATHER_API_KEY = os.getenv('WEATHER_API_KEY', 'test_key')
+    WHATSAPP_LINK = os.getenv('WHATSAPP_LINK', 'https://wa.me/test')
+else:
+    # Modo normal - usar secrets do Streamlit
+    WEATHER_API_KEY = st.secrets["WEATHER_API_KEY"]
+    WHATSAPP_LINK = st.secrets["WHATSAPP_LINK"]
 
 # Dicionário de tradução do tempo
 WEATHER_TRANSLATIONS = {
