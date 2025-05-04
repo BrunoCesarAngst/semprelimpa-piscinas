@@ -79,7 +79,6 @@ Session = sessionmaker(bind=engine)
 def create_default_services():
     """Cria os serviços padrão se não existirem"""
     session = Session()
-
     default_services = [
         (
             "Pacote Anual",
@@ -102,10 +101,9 @@ def create_default_services():
             80.00
         )
     ]
-
+    created = False
     try:
         for name, description, price in default_services:
-            # Verifica se o serviço já existe
             existing = session.query(Service).filter_by(name=name).first()
             if not existing:
                 new_service = Service(
@@ -115,9 +113,17 @@ def create_default_services():
                     active=1
                 )
                 session.add(new_service)
+                created = True
 
         session.commit()
-        st.success("Serviços padrão criados com sucesso!")
+        if created:
+            if 'show_success_services' not in st.session_state:
+                st.session_state['show_success_services'] = True
+            if st.session_state['show_success_services']:
+                st.success("Serviços padrão criados com sucesso!")
+                if st.button("Fechar mensagem", key="close_success_services"):
+                    st.session_state['show_success_services'] = False
+                    st.experimental_rerun()
     except Exception as e:
         session.rollback()
         st.error(f"Erro ao criar serviços padrão: {str(e)}")

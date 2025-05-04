@@ -1,0 +1,2 @@
+# Monitoramento de logs - roda a cada hora
+0 * * * * cd /caminho/para/semprelimpa-piscinas && python monitor.py >> logs/cron.log 2>&1

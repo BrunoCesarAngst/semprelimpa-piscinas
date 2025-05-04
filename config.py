@@ -27,4 +27,11 @@ class Settings:
     WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
     WHATSAPP_LINK   = os.getenv("WHATSAPP_LINK")
 
+# Configurações de email para monitoramento
+ALERT_EMAIL = "mbcangst@gmail.com"  # Email que receberá os alertas
+SMTP_SERVER = "smtp.gmail.com"  # Servidor SMTP
+SMTP_PORT = 587  # Porta SMTP
+SMTP_USER = "mbcangst@gmail.com"  # Email de envio
+SMTP_PASS = os.getenv("GMAIL_APP_PASSWORD")  # Senha de aplicativo do Gmail
+
 settings = Settings()
