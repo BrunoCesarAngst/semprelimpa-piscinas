@@ -132,6 +132,11 @@ def create_default_services():
 
 def init_db():
     """Inicializa o banco de dados"""
+    # Garante que o diretório do banco de dados exista
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
+
     Base.metadata.create_all(engine)
     create_default_services()  # Adiciona os serviços padrão
 
