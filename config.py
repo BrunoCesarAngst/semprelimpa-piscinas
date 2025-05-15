@@ -35,3 +35,6 @@ SMTP_USER = "mbcangst@gmail.com"  # Email de envio
 SMTP_PASS = os.getenv("GMAIL_APP_PASSWORD")  # Senha de aplicativo do Gmail
 
 settings = Settings()
+
+if not settings.DB_PATH:
+    print("ALERTA CRÍTICO: A variável de ambiente DB_PATH não está definida! O aplicativo pode não funcionar corretamente.")

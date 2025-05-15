@@ -71,9 +71,11 @@ WEATHER_TRANSLATIONS = {
     'thunderstorm with heavy drizzle': 'trovoada com garoa forte'
 }
 
-# Configuração global da engine e sessionmaker
-engine = create_engine(f"sqlite:///{DB_PATH}")
-Session = sessionmaker(bind=engine)
+# Remover engine e Session globais
+# engine = create_engine(f"sqlite:///{DB_PATH}")
+# Session = sessionmaker(bind=engine)
+engine = None
+Session = None
 
 # ---------- FUNÇÕES AUXILIARES ----------
 def create_default_services():
@@ -132,10 +134,21 @@ def create_default_services():
 
 def init_db():
     """Inicializa o banco de dados"""
+    global engine, Session
+
+    if not DB_PATH:
+        print("ERRO CRÍTICO: DB_PATH não está definido nas configurações. A inicialização do banco de dados foi abortada.")
+        st.error("Erro crítico: A configuração do caminho do banco de dados (DB_PATH) não foi encontrada. O aplicativo não pode iniciar corretamente.")
+        return
+
     # Garante que o diretório do banco de dados exista
     db_dir = os.path.dirname(DB_PATH)
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
+
+    # Agora sim, inicializa a engine e o sessionmaker
+    engine = create_engine(f"sqlite:///{DB_PATH}")
+    Session = sessionmaker(bind=engine)
 
     Base.metadata.create_all(engine)
     create_default_services()  # Adiciona os serviços padrão
