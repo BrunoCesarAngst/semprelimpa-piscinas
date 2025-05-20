@@ -42,6 +42,9 @@ jobs:
           # Criar banco de dados vazio
           touch "$DB_PATH"
 
+          # Configurar URL do banco de dados
+          echo "DATABASE_URL=sqlite:///${DB_PATH}" >> $GITHUB_ENV
+
           # Marcar o DB base sem nada
           alembic stamp base
 
@@ -106,6 +109,9 @@ jobs:
           # Criar banco de dados vazio
           touch "$DB_PATH"
 
+          # Configurar URL do banco de dados
+          echo "DATABASE_URL=sqlite:///${DB_PATH}" >> $GITHUB_ENV
+
           # Marcar o DB base sem nada
           alembic stamp base
 
@@ -165,6 +171,9 @@ jobs:
           set -e
           # Criar banco de dados vazio
           touch "$DB_PATH"
+
+          # Configurar URL do banco de dados
+          echo "DATABASE_URL=sqlite:///${DB_PATH}" >> $GITHUB_ENV
 
           # Marcar o DB base sem nada
           alembic stamp base
