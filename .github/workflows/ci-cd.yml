@@ -47,9 +47,10 @@ jobs:
           # Aplicar todas as migrations existentes
           alembic upgrade head
 
-          # **CHECAGEM**: atual (no DB) deve ser igual ao heads (na pasta versions)
-          current=$(alembic current | awk '{print $1}')
-          heads=$(alembic heads | awk '{print $1}')
+          # Extrair apenas o revision ID (12 hex) de cada comando
+          current=$(alembic current | grep -m1 -Eo '^[0-9a-f]{12}$')
+          heads=$(alembic heads | grep -m1 -Eo '^[0-9a-f]{12}$')
+
           echo "Current revision: $current"
           echo "Head revisions:  $heads"
           if [ "$current" != "$heads" ]; then
@@ -108,9 +109,10 @@ jobs:
           # Aplicar todas as migrations existentes
           alembic upgrade head
 
-          # **CHECAGEM**: atual (no DB) deve ser igual ao heads (na pasta versions)
-          current=$(alembic current | awk '{print $1}')
-          heads=$(alembic heads | awk '{print $1}')
+          # Extrair apenas o revision ID (12 hex) de cada comando
+          current=$(alembic current | grep -m1 -Eo '^[0-9a-f]{12}$')
+          heads=$(alembic heads | grep -m1 -Eo '^[0-9a-f]{12}$')
+
           echo "Current revision: $current"
           echo "Head revisions:  $heads"
           if [ "$current" != "$heads" ]; then
@@ -165,9 +167,10 @@ jobs:
           # Aplicar todas as migrations existentes
           alembic upgrade head
 
-          # **CHECAGEM**: atual (no DB) deve ser igual ao heads (na pasta versions)
-          current=$(alembic current | awk '{print $1}')
-          heads=$(alembic heads | awk '{print $1}')
+          # Extrair apenas o revision ID (12 hex) de cada comando
+          current=$(alembic current | grep -m1 -Eo '^[0-9a-f]{12}$')
+          heads=$(alembic heads | grep -m1 -Eo '^[0-9a-f]{12}$')
+
           echo "Current revision: $current"
           echo "Head revisions:  $heads"
           if [ "$current" != "$heads" ]; then
