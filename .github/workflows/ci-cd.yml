@@ -33,28 +33,29 @@ jobs:
           pip install pytest pytest-cov
           pip install -r requirements.txt
 
-      - name: Instalar dependências
-        run: pip install -r requirements.txt
-
       - name: Verificar migrações
         run: |
           # Criar diretório data se não existir
           mkdir -p data
 
           # Criar banco de dados vazio
-          touch ${{ env.DB_PATH }}
+          touch "$DB_PATH"
 
-          # Criar migração inicial
-          alembic revision --autogenerate -m "initial"
-
-          # Marcar banco como base
+          # Marcar o DB base sem nada
           alembic stamp base
 
-          # Aplicar migrações
+          # Aplicar todas as migrations existentes
           alembic upgrade head
 
-          # Verificar migrações
-          alembic check
+          # **CHECAGEM**: atual (no DB) deve ser igual ao heads (na pasta versions)
+          current=$(alembic current -q)
+          heads=$(alembic heads -q)
+          echo "Current revision: $current"
+          echo "Head revisions:  $heads"
+          if [ "$current" != "$heads" ]; then
+            echo "::error ::Migrations faltando! Commit as novas migrations antes de rodar o CI."
+            exit 1
+          fi
 
       - name: Run tests
         run: |
@@ -99,16 +100,23 @@ jobs:
       - name: Run migrations on staging
         run: |
           # Criar banco de dados vazio
-          touch ${{ env.DB_PATH }}
+          touch "$DB_PATH"
 
-          # Criar migração inicial que reflita o estado atual dos modelos
-          alembic revision --autogenerate -m "initial"
-
-          # Inicializar banco de dados vazio
+          # Marcar o DB base sem nada
           alembic stamp base
 
-          # Aplicar migrações para criar as tabelas
+          # Aplicar todas as migrations existentes
           alembic upgrade head
+
+          # **CHECAGEM**: atual (no DB) deve ser igual ao heads (na pasta versions)
+          current=$(alembic current -q)
+          heads=$(alembic heads -q)
+          echo "Current revision: $current"
+          echo "Head revisions:  $heads"
+          if [ "$current" != "$heads" ]; then
+            echo "::error ::Migrations faltando! Commit as novas migrations antes de rodar o CI."
+            exit 1
+          fi
 
       - name: Validate staging
         run: |
@@ -149,16 +157,23 @@ jobs:
       - name: Run migrations on production
         run: |
           # Criar banco de dados vazio
-          touch ${{ env.DB_PATH }}
+          touch "$DB_PATH"
 
-          # Criar migração inicial que reflita o estado atual dos modelos
-          alembic revision --autogenerate -m "initial"
-
-          # Inicializar banco de dados vazio
+          # Marcar o DB base sem nada
           alembic stamp base
 
-          # Aplicar migrações para criar as tabelas
+          # Aplicar todas as migrations existentes
           alembic upgrade head
+
+          # **CHECAGEM**: atual (no DB) deve ser igual ao heads (na pasta versions)
+          current=$(alembic current -q)
+          heads=$(alembic heads -q)
+          echo "Current revision: $current"
+          echo "Head revisions:  $heads"
+          if [ "$current" != "$heads" ]; then
+            echo "::error ::Migrations faltando! Commit as novas migrations antes de rodar o CI."
+            exit 1
+          fi
 
       - name: Deploy to production
         run: |
