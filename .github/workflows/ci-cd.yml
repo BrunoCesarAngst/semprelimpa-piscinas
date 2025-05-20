@@ -18,7 +18,6 @@ jobs:
     env:
       DB_PATH: data/database_test.db
       ENVIRONMENT: test
-      ALEMBIC_MIGRATION: "true"
     steps:
       - uses: actions/checkout@v2
 
@@ -27,28 +26,28 @@ jobs:
         with:
           python-version: "3.9"
 
-      - name: Install dependencies
+      - name: Criar diretório e .env.test
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-cov
-          pip install -r requirements.txt
-
-      - name: Verificar migrações
-        run: |
-          set -e
-          # Criar diretório data se não existir
           mkdir -p data
-
-          # Criar banco de dados vazio
           touch "$DB_PATH"
+          echo "ENVIRONMENT=test" > .env.test
+          echo "DB_PATH=$DB_PATH" >> .env.test
 
-          # Configurar URL do banco de dados
+      - name: Exportar DATABASE_URL para Alembic
+        run: |
           echo "DATABASE_URL=sqlite:///${DB_PATH}" >> $GITHUB_ENV
 
-          # Marcar o DB base sem nada
-          alembic stamp base
+      - name: Instalar dependências e rodar migrações
+        env:
+          ALEMBIC_MIGRATION: "true"
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov alembic
+          pip install -r requirements.txt
 
-          # Aplicar todas as migrations existentes
+          # Marcar base e aplicar todas as migrations
+          alembic stamp base
           alembic upgrade head
 
           # Extrair apenas o bloco inicial de hex na primeira ocorrência
@@ -78,7 +77,6 @@ jobs:
     env:
       DB_PATH: data/database_staging.db
       ENVIRONMENT: staging
-      ALEMBIC_MIGRATION: "true"
     steps:
       - uses: actions/checkout@v2
 
@@ -87,35 +85,31 @@ jobs:
         with:
           python-version: "3.9"
 
-      - name: Install dependencies
+      - name: Criar diretório e .env.staging
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Criar diretório do banco de dados
-        run: mkdir -p data
-
-      - name: Criar .env.staging
-        run: |
+          mkdir -p data
+          touch "$DB_PATH"
           echo "ENVIRONMENT=staging" > .env.staging
-          echo "DB_PATH=${{ env.DB_PATH }}" >> .env.staging
+          echo "DB_PATH=$DB_PATH" >> .env.staging
           echo "ADMIN_SECRET=${{ secrets.ADMIN_SECRET_STAGING }}" >> .env.staging
           echo "WEATHER_API_KEY=${{ secrets.WEATHER_API_KEY_STAGING }}" >> .env.staging
           echo "WHATSAPP_LINK=${{ secrets.WHATSAPP_LINK }}" >> .env.staging
 
-      - name: Run migrations on staging
+      - name: Exportar DATABASE_URL para Alembic
         run: |
-          set -e
-          # Criar banco de dados vazio
-          touch "$DB_PATH"
-
-          # Configurar URL do banco de dados
           echo "DATABASE_URL=sqlite:///${DB_PATH}" >> $GITHUB_ENV
 
-          # Marcar o DB base sem nada
-          alembic stamp base
+      - name: Instalar dependências e rodar migrações
+        env:
+          ALEMBIC_MIGRATION: "true"
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          pip install alembic
+          pip install -r requirements.txt
 
-          # Aplicar todas as migrations existentes
+          # Marcar base e aplicar todas as migrations
+          alembic stamp base
           alembic upgrade head
 
           # Extrair apenas o bloco inicial de hex na primeira ocorrência
@@ -141,7 +135,6 @@ jobs:
     env:
       DB_PATH: data/database_production.db
       ENVIRONMENT: production
-      ALEMBIC_MIGRATION: "true"
     steps:
       - uses: actions/checkout@v2
 
@@ -150,35 +143,31 @@ jobs:
         with:
           python-version: "3.9"
 
-      - name: Install dependencies
+      - name: Criar diretório e .env.production
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Criar diretório do banco de dados
-        run: mkdir -p data
-
-      - name: Criar .env.production
-        run: |
+          mkdir -p data
+          touch "$DB_PATH"
           echo "ENVIRONMENT=production" > .env.production
-          echo "DB_PATH=${{ env.DB_PATH }}" >> .env.production
+          echo "DB_PATH=$DB_PATH" >> .env.production
           echo "ADMIN_SECRET=${{ secrets.ADMIN_SECRET_PRODUCTION }}" >> .env.production
           echo "WEATHER_API_KEY=${{ secrets.WEATHER_API_KEY_PRODUCTION }}" >> .env.production
           echo "WHATSAPP_LINK=${{ secrets.WHATSAPP_LINK }}" >> .env.production
 
-      - name: Run migrations on production
+      - name: Exportar DATABASE_URL para Alembic
         run: |
-          set -e
-          # Criar banco de dados vazio
-          touch "$DB_PATH"
-
-          # Configurar URL do banco de dados
           echo "DATABASE_URL=sqlite:///${DB_PATH}" >> $GITHUB_ENV
 
-          # Marcar o DB base sem nada
-          alembic stamp base
+      - name: Instalar dependências e rodar migrações
+        env:
+          ALEMBIC_MIGRATION: "true"
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          pip install alembic
+          pip install -r requirements.txt
 
-          # Aplicar todas as migrations existentes
+          # Marcar base e aplicar todas as migrations
+          alembic stamp base
           alembic upgrade head
 
           # Extrair apenas o bloco inicial de hex na primeira ocorrência
