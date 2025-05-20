@@ -41,33 +41,24 @@ jobs:
           # Criar diretório data se não existir
           mkdir -p data
 
-          # Criar banco de dados de teste
+          # Criar banco de dados vazio
           touch test.db
 
-          # Criar banco de dados com tabelas base
-          echo "🔧 Criando banco de dados base..."
-          python -c "
-          from sqlalchemy import create_engine
-          from models import Base
-          engine = create_engine('sqlite:///test.db')
-          Base.metadata.create_all(engine)
-          "
-
-          # Criar migração inicial manual
+          # Criar migração inicial que reflita o estado atual dos modelos
           echo "🔧 Criando migração inicial..."
-          alembic revision -m "initial"
+          alembic revision --autogenerate -m "initial"
 
-          # Inicializar banco de dados com a primeira migração
+          # Inicializar banco de dados vazio
           echo "🔧 Inicializando banco de dados..."
           alembic stamp base
+
+          # Aplicar migrações para criar as tabelas
+          echo "⬆️ Aplicando migrações..."
+          alembic upgrade head
 
           # Verificar migrações
           echo "🔍 Verificando migrações..."
           alembic check
-
-          # Testar upgrade
-          echo "⬆️ Testando upgrade..."
-          alembic upgrade head
 
           # Testar downgrade
           echo "⬇️ Testando downgrade..."
@@ -120,19 +111,16 @@ jobs:
         env:
           ALEMBIC_MIGRATION: "true"
         run: |
-          # Criar banco de dados com tabelas base
-          python -c "
-          from sqlalchemy import create_engine
-          from models import Base
-          from config import settings
-          engine = create_engine(f'sqlite:///{settings.DB_PATH}')
-          Base.metadata.create_all(engine)
-          "
-          # Criar migração inicial manual
-          alembic revision -m "initial"
-          # Inicializar banco de dados
+          # Criar banco de dados vazio
+          touch ${{ settings.DB_PATH }}
+
+          # Criar migração inicial que reflita o estado atual dos modelos
+          alembic revision --autogenerate -m "initial"
+
+          # Inicializar banco de dados vazio
           alembic stamp base
-          # Executar migrações
+
+          # Aplicar migrações para criar as tabelas
           alembic upgrade head
 
       - name: Validate staging
@@ -171,19 +159,16 @@ jobs:
         env:
           ALEMBIC_MIGRATION: "true"
         run: |
-          # Criar banco de dados com tabelas base
-          python -c "
-          from sqlalchemy import create_engine
-          from models import Base
-          from config import settings
-          engine = create_engine(f'sqlite:///{settings.DB_PATH}')
-          Base.metadata.create_all(engine)
-          "
-          # Criar migração inicial manual
-          alembic revision -m "initial"
-          # Inicializar banco de dados
+          # Criar banco de dados vazio
+          touch ${{ settings.DB_PATH }}
+
+          # Criar migração inicial que reflita o estado atual dos modelos
+          alembic revision --autogenerate -m "initial"
+
+          # Inicializar banco de dados vazio
           alembic stamp base
-          # Executar migrações
+
+          # Aplicar migrações para criar as tabelas
           alembic upgrade head
 
       - name: Deploy to production
