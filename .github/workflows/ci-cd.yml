@@ -44,6 +44,15 @@ jobs:
           # Criar banco de dados de teste
           touch test.db
 
+          # Criar banco de dados com tabelas base
+          echo "🔧 Criando banco de dados base..."
+          python -c "
+          from sqlalchemy import create_engine
+          from models import Base
+          engine = create_engine('sqlite:///test.db')
+          Base.metadata.create_all(engine)
+          "
+
           # Inicializar banco de dados com a primeira migração
           echo "🔧 Inicializando banco de dados..."
           alembic stamp base
@@ -107,6 +116,14 @@ jobs:
         env:
           ALEMBIC_MIGRATION: "true"
         run: |
+          # Criar banco de dados com tabelas base
+          python -c "
+          from sqlalchemy import create_engine
+          from models import Base
+          from config import settings
+          engine = create_engine(f'sqlite:///{settings.DB_PATH}')
+          Base.metadata.create_all(engine)
+          "
           # Inicializar banco de dados
           alembic stamp base
           # Executar migrações
@@ -148,6 +165,14 @@ jobs:
         env:
           ALEMBIC_MIGRATION: "true"
         run: |
+          # Criar banco de dados com tabelas base
+          python -c "
+          from sqlalchemy import create_engine
+          from models import Base
+          from config import settings
+          engine = create_engine(f'sqlite:///{settings.DB_PATH}')
+          Base.metadata.create_all(engine)
+          "
           # Inicializar banco de dados
           alembic stamp base
           # Executar migrações
