@@ -35,6 +35,7 @@ jobs:
 
       - name: Verificar migrações
         run: |
+          set -e
           # Criar diretório data se não existir
           mkdir -p data
 
@@ -47,14 +48,15 @@ jobs:
           # Aplicar todas as migrations existentes
           alembic upgrade head
 
-          # Extrair apenas o revision ID (12 hex) de cada comando
-          current=$(alembic current | grep -m1 -Eo '^[0-9a-f]{12}$')
-          heads=$(alembic heads | grep -m1 -Eo '^[0-9a-f]{12}$')
+          # Extrair apenas o bloco inicial de hex na primeira ocorrência
+          current=$(alembic current 2>&1 | grep -m1 -Eo '^[0-9a-f]+' || true)
+          heads=$(alembic heads 2>&1 | grep -m1 -Eo '^[0-9a-f]+' || true)
 
-          echo "Current revision: $current"
-          echo "Head revisions:  $heads"
-          if [ "$current" != "$heads" ]; then
-            echo "::error ::Migrations faltando! Commit as novas migrations antes de rodar o CI."
+          echo "Current revision: ${current:-<nenhuma>}"
+          echo "Head revision:    ${heads:-<nenhuma>}"
+
+          if [[ -z "$current" || "$current" != "$heads" ]]; then
+            echo "::error ::Migrations faltando ou parsing falhou! Verifique se você comitou todas as migrations."
             exit 1
           fi
 
@@ -100,6 +102,7 @@ jobs:
 
       - name: Run migrations on staging
         run: |
+          set -e
           # Criar banco de dados vazio
           touch "$DB_PATH"
 
@@ -109,14 +112,15 @@ jobs:
           # Aplicar todas as migrations existentes
           alembic upgrade head
 
-          # Extrair apenas o revision ID (12 hex) de cada comando
-          current=$(alembic current | grep -m1 -Eo '^[0-9a-f]{12}$')
-          heads=$(alembic heads | grep -m1 -Eo '^[0-9a-f]{12}$')
+          # Extrair apenas o bloco inicial de hex na primeira ocorrência
+          current=$(alembic current 2>&1 | grep -m1 -Eo '^[0-9a-f]+' || true)
+          heads=$(alembic heads 2>&1 | grep -m1 -Eo '^[0-9a-f]+' || true)
 
-          echo "Current revision: $current"
-          echo "Head revisions:  $heads"
-          if [ "$current" != "$heads" ]; then
-            echo "::error ::Migrations faltando! Commit as novas migrations antes de rodar o CI."
+          echo "Current revision: ${current:-<nenhuma>}"
+          echo "Head revision:    ${heads:-<nenhuma>}"
+
+          if [[ -z "$current" || "$current" != "$heads" ]]; then
+            echo "::error ::Migrations faltando ou parsing falhou! Verifique se você comitou todas as migrations."
             exit 1
           fi
 
@@ -158,6 +162,7 @@ jobs:
 
       - name: Run migrations on production
         run: |
+          set -e
           # Criar banco de dados vazio
           touch "$DB_PATH"
 
@@ -167,14 +172,15 @@ jobs:
           # Aplicar todas as migrations existentes
           alembic upgrade head
 
-          # Extrair apenas o revision ID (12 hex) de cada comando
-          current=$(alembic current | grep -m1 -Eo '^[0-9a-f]{12}$')
-          heads=$(alembic heads | grep -m1 -Eo '^[0-9a-f]{12}$')
+          # Extrair apenas o bloco inicial de hex na primeira ocorrência
+          current=$(alembic current 2>&1 | grep -m1 -Eo '^[0-9a-f]+' || true)
+          heads=$(alembic heads 2>&1 | grep -m1 -Eo '^[0-9a-f]+' || true)
 
-          echo "Current revision: $current"
-          echo "Head revisions:  $heads"
-          if [ "$current" != "$heads" ]; then
-            echo "::error ::Migrations faltando! Commit as novas migrations antes de rodar o CI."
+          echo "Current revision: ${current:-<nenhuma>}"
+          echo "Head revision:    ${heads:-<nenhuma>}"
+
+          if [[ -z "$current" || "$current" != "$heads" ]]; then
+            echo "::error ::Migrations faltando ou parsing falhou! Verifique se você comitou todas as migrations."
             exit 1
           fi
 
