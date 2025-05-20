@@ -13,14 +13,19 @@ $env:PYTHONPATH = $rootDir
 # Navegar para o diretório raiz
 Set-Location $rootDir
 
-# Verificar se o ambiente virtual está ativado
+# Configurar ambiente
+$env:ALEMBIC_MIGRATION = "true"
+$env:ENVIRONMENT = "development"
+$env:DB_PATH = "data/database.db"
+
+# Verificar se o ambiente virtual existe
 if (-not (Test-Path ".venv")) {
-  Write-Host "⚠️ Ambiente virtual não encontrado. Criando..."
+  Write-Host "❌ Ambiente virtual não encontrado. Criando..."
   python -m venv .venv
 }
 
-# Ativar o ambiente virtual
-& .\.venv\Scripts\Activate.ps1
+# Ativar ambiente virtual
+. .\.venv\Scripts\Activate.ps1
 
 # Instalar dependências se necessário
 if (-not (Test-Path ".venv\Lib\site-packages\alembic")) {
@@ -28,7 +33,16 @@ if (-not (Test-Path ".venv\Lib\site-packages\alembic")) {
   pip install -r requirements.txt
 }
 
-# Executar migração
+# Garantir que o diretório data existe
+if (-not (Test-Path "data")) {
+  New-Item -ItemType Directory -Path "data"
+}
+
+# Atualizar banco de dados para a versão mais recente
+Write-Host "⬆️ Atualizando banco de dados para a versão mais recente..."
+alembic upgrade head
+
+# Gerar nova migração
 Write-Host "🚀 Executando migração: $Message"
 python scripts/generate_migration.py $Message
 

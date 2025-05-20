@@ -33,13 +33,13 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Verify migrations
+        env:
+          ALEMBIC_MIGRATION: "true"
+          ENVIRONMENT: "test"
+          DB_PATH: "test.db"
         run: |
           # Criar banco de dados de teste
           touch test.db
-
-          # Configurar ambiente de teste
-          export ENVIRONMENT=test
-          export DB_PATH=test.db
 
           # Verificar migrações
           echo "🔍 Verificando migrações..."
@@ -97,6 +97,8 @@ jobs:
           echo "WHATSAPP_LINK=${{ secrets.WHATSAPP_LINK }}" >> .env.staging
 
       - name: Run migrations on staging
+        env:
+          ALEMBIC_MIGRATION: "true"
         run: alembic upgrade head
 
       - name: Validate staging
@@ -132,6 +134,8 @@ jobs:
           echo "WHATSAPP_LINK=${{ secrets.WHATSAPP_LINK }}" >> .env.production
 
       - name: Run migrations on production
+        env:
+          ALEMBIC_MIGRATION: "true"
         run: alembic upgrade head
 
       - name: Deploy to production
