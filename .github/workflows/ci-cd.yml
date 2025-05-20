@@ -53,13 +53,13 @@ jobs:
           Base.metadata.create_all(engine)
           "
 
-          # Criar migração inicial vazia
+          # Criar migração inicial manual
           echo "🔧 Criando migração inicial..."
-          alembic revision --autogenerate -m "initial"
+          alembic revision -m "initial"
 
           # Inicializar banco de dados com a primeira migração
           echo "🔧 Inicializando banco de dados..."
-          alembic stamp head
+          alembic stamp base
 
           # Verificar migrações
           echo "🔍 Verificando migrações..."
@@ -128,10 +128,10 @@ jobs:
           engine = create_engine(f'sqlite:///{settings.DB_PATH}')
           Base.metadata.create_all(engine)
           "
-          # Criar migração inicial vazia
-          alembic revision --autogenerate -m "initial"
+          # Criar migração inicial manual
+          alembic revision -m "initial"
           # Inicializar banco de dados
-          alembic stamp head
+          alembic stamp base
           # Executar migrações
           alembic upgrade head
 
@@ -179,10 +179,10 @@ jobs:
           engine = create_engine(f'sqlite:///{settings.DB_PATH}')
           Base.metadata.create_all(engine)
           "
-          # Criar migração inicial vazia
-          alembic revision --autogenerate -m "initial"
+          # Criar migração inicial manual
+          alembic revision -m "initial"
           # Inicializar banco de dados
-          alembic stamp head
+          alembic stamp base
           # Executar migrações
           alembic upgrade head
 
