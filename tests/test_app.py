@@ -58,7 +58,10 @@ def test_create_appointment(db_session):
     user = User(
         username="testuser",
         password=hash_pwd("testpass"),
-        name="Test User"
+        name="Test User",
+        email="testuser@example.com",
+        phone="51999999999",
+        address="Rua Teste, 123"
     )
     service = Service(
         name="Test Service",
