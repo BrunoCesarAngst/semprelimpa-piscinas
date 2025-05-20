@@ -3,7 +3,7 @@ from streamlit_folium import folium_static
 import folium
 import pandas as pd
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import urllib.parse
 import webbrowser
@@ -11,13 +11,225 @@ from feature_flags import feature_flags
 from config import settings
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-from models import User, Service, Appointment, Config, Gallery, Base
+from models import User, Service, Appointment, Config, Gallery, Base, AuthToken
 from utils import hash_pwd, check_pwd
 import alembic.config
 from alembic import command
 from alembic.script import ScriptDirectory
 from alembic.runtime.environment import EnvironmentContext
 import shutil
+import secrets
+import json
+import hmac
+import hashlib
+import base64
+import subprocess
+import sys
+import extra_streamlit_components as stx
+
+# Verificar e instalar dependências
+def install_dependencies():
+    try:
+        import extra_streamlit_components as stx
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "extra-streamlit-components"])
+        import extra_streamlit_components as stx
+
+install_dependencies()
+
+# ---------- FUNÇÕES DE GERENCIAMENTO DE TOKENS ----------
+def generate_token():
+    """Gera um token aleatório seguro."""
+    return secrets.token_hex(32)
+
+def create_auth_token(user_id, expiry_hours=10):
+    """
+    Cria um novo token de autenticação para o usuário.
+
+    Args:
+        user_id: ID do usuário
+        expiry_hours: Horas até a expiração do token
+
+    Returns:
+        str: Token gerado
+    """
+    session = Session()
+    try:
+        # Limpar tokens expirados
+        cleanup_expired_tokens()
+
+        # Gerar novo token
+        token = generate_token()
+        now = datetime.now()
+        expires_at = now + timedelta(hours=expiry_hours)
+
+        # Salvar no banco de dados
+        auth_token = AuthToken(
+            user_id=user_id,
+            token=token,
+            created_at=now.isoformat(),
+            expires_at=expires_at.isoformat()
+        )
+        session.add(auth_token)
+        session.commit()
+
+        # Criar cookie seguro
+        cookie_value = create_secure_cookie(user_id, token)
+        return cookie_value
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+def validate_auth_token(cookie_value):
+    """
+    Valida um token de autenticação.
+
+    Args:
+        cookie_value: Valor do cookie
+
+    Returns:
+        int or None: ID do usuário se válido, None caso contrário
+    """
+    try:
+        # Decodificar cookie
+        user_id, token = decode_secure_cookie(cookie_value)
+        if not user_id or not token:
+            return None
+
+        # Verificar no banco de dados
+        session = Session()
+        auth_token = session.query(AuthToken).filter_by(
+            user_id=user_id,
+            token=token
+        ).first()
+        session.close()
+
+        if not auth_token:
+            return None
+
+        # Verificar expiração
+        expires_at = datetime.fromisoformat(auth_token.expires_at)
+        if datetime.now() > expires_at:
+            # Token expirado, remover
+            delete_auth_token(user_id, token)
+            return None
+
+        return user_id
+    except Exception:
+        return None
+
+def delete_auth_token(user_id, token):
+    """Remove um token específico do banco de dados."""
+    session = Session()
+    try:
+        session.query(AuthToken).filter_by(
+            user_id=user_id,
+            token=token
+        ).delete()
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+def cleanup_expired_tokens():
+    """Remove todos os tokens expirados do banco de dados."""
+    session = Session()
+    try:
+        now = datetime.now().isoformat()
+        session.query(AuthToken).filter(
+            AuthToken.expires_at < now
+        ).delete()
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+def logout_user(cookie_value):
+    """
+    Realiza o logout do usuário removendo o token.
+
+    Args:
+        cookie_value: Valor do cookie
+
+    Returns:
+        bool: True se logout bem-sucedido, False caso contrário
+    """
+    try:
+        user_id, token = decode_secure_cookie(cookie_value)
+        if user_id and token:
+            delete_auth_token(user_id, token)
+            return True
+        return False
+    except Exception:
+        return False
+
+def create_secure_cookie(user_id, token, secret_key=None):
+    """
+    Cria um cookie seguro com HMAC para verificação de integridade.
+
+    Args:
+        user_id: ID do usuário
+        token: Token de autenticação
+        secret_key: Chave secreta para assinatura (opcional)
+
+    Returns:
+        str: Valor codificado do cookie
+    """
+    if secret_key is None:
+        secret_key = settings.ADMIN_SECRET
+
+    payload = json.dumps({"user_id": user_id, "token": token})
+    payload_b64 = base64.b64encode(payload.encode()).decode()
+
+    # Criar assinatura HMAC
+    signature = hmac.new(
+        secret_key.encode(),
+        payload_b64.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    # Combinar payload e assinatura
+    return f"{payload_b64}.{signature}"
+
+def decode_secure_cookie(cookie_value, secret_key=None):
+    """
+    Decodifica e verifica um cookie seguro.
+
+    Args:
+        cookie_value: Valor do cookie
+        secret_key: Chave secreta para verificação (opcional)
+
+    Returns:
+        tuple: (user_id, token) se válido, (None, None) caso contrário
+    """
+    if secret_key is None:
+        secret_key = settings.ADMIN_SECRET
+
+    try:
+        # Separar payload e assinatura
+        payload_b64, signature = cookie_value.split(".")
+
+        # Verificar assinatura
+        expected_signature = hmac.new(
+            secret_key.encode(),
+            payload_b64.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(signature, expected_signature):
+            return None, None
+
+        # Decodificar payload
+        payload = json.loads(base64.b64decode(payload_b64).decode())
+        return payload["user_id"], payload["token"]
+    except Exception:
+        return None, None
 
 # ---------- CONFIGURAÇÕES ----------
 ENVIRONMENT = settings.ENVIRONMENT
@@ -25,6 +237,10 @@ ADMIN_SECRET = settings.ADMIN_SECRET
 DB_PATH = settings.DB_PATH
 WEATHER_API_KEY = settings.WEATHER_API_KEY
 WHATSAPP_LINK = settings.WHATSAPP_LINK
+
+# Inicializar engine e Session
+engine = create_engine(f"sqlite:///{DB_PATH}")
+Session = sessionmaker(bind=engine)
 
 # Dicionário de tradução do tempo
 WEATHER_TRANSLATIONS = {
@@ -75,12 +291,6 @@ WEATHER_TRANSLATIONS = {
     'thunderstorm with drizzle': 'trovoada com garoa',
     'thunderstorm with heavy drizzle': 'trovoada com garoa forte'
 }
-
-# Remover engine e Session globais
-# engine = create_engine(f"sqlite:///{DB_PATH}")
-# Session = sessionmaker(bind=engine)
-engine = None
-Session = None
 
 # ---------- FUNÇÕES AUXILIARES ----------
 def create_default_services():
@@ -212,8 +422,6 @@ def run_alembic_migrations():
 
 def init_db():
     """Inicializa o banco de dados"""
-    global engine, Session
-
     if not DB_PATH:
         print("ERRO CRÍTICO: DB_PATH não está definido nas configurações. A inicialização do banco de dados foi abortada.")
         st.error("Erro crítico: A configuração do caminho do banco de dados (DB_PATH) não foi encontrada. O aplicativo não pode iniciar corretamente.")
@@ -223,10 +431,6 @@ def init_db():
     db_dir = os.path.dirname(DB_PATH)
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
-
-    # Inicializa a engine e o sessionmaker
-    engine = create_engine(f"sqlite:///{DB_PATH}")
-    Session = sessionmaker(bind=engine)
 
     # Executar migrações Alembic
     success, message = run_alembic_migrations()
@@ -605,7 +809,10 @@ def sistema_antigo_agendamento():
             session.close()
 
 def cadastro():
+    import extra_streamlit_components as stx
+    cookie_manager = stx.CookieManager()
     st.title("Cadastro de Usuário")
+    st.write("ADMIN_SECRET usado para admin:", ADMIN_SECRET)  # Depuração
     with st.form("cadastro_form"):
         username = st.text_input("Nome de usuário")
         password = st.text_input("Senha", type="password")
@@ -614,10 +821,8 @@ def cadastro():
         email = st.text_input("Email")
         phone = st.text_input("Telefone")
         address = st.text_input("Endereço")
-
-        # Campo secreto para código de administrador
+        remember_me = st.checkbox("Manter conectado")
         admin_code = st.text_input("Código de Administrador (opcional)", type="password")
-
         submitted = st.form_submit_button("Cadastrar")
 
         if submitted:
@@ -625,16 +830,12 @@ def cadastro():
             if not all([username, password, confirm_password, name, email, phone, address]):
                 st.error("Por favor, preencha todos os campos.")
                 return
-
             if password != confirm_password:
                 st.error("As senhas não coincidem.")
                 return
-
             if len(password) < 6:
                 st.error("A senha deve ter pelo menos 6 caracteres.")
                 return
-
-            # Verificar se o usuário já existe
             session = Session()
             existing_user = session.query(User).filter(
                 (User.username == username) | (User.email == email)
@@ -643,7 +844,6 @@ def cadastro():
                 st.error("Nome de usuário ou email já cadastrado.")
                 session.close()
                 return
-
             try:
                 password_hash = hash_pwd(password)
                 is_admin = int(admin_code == ADMIN_SECRET)
@@ -658,19 +858,46 @@ def cadastro():
                 )
                 session.add(new_user)
                 session.commit()
-                st.success("Cadastro realizado com sucesso! Faça login para continuar.")
-                st.session_state['current_page'] = "Login"
+                if remember_me:
+                    try:
+                        cookie_value = create_auth_token(new_user.id)
+                        cookie_manager.set(
+                            "auth_token",
+                            cookie_value,
+                            max_age=36000,  # 10 horas
+                            path="/",
+                            secure=False   # True em produção
+                        )
+                        st.session_state['auth_token'] = cookie_value
+                        st.session_state['logged_in'] = True
+                        st.session_state['user_id'] = new_user.id
+                        st.session_state['username'] = new_user.username
+                        st.session_state['is_admin'] = new_user.is_admin
+                        if new_user.is_admin:
+                            st.session_state['current_page'] = "Agendamentos"
+                        else:
+                            st.session_state['current_page'] = "Home"
+                    except Exception as e:
+                        st.error(f"Erro ao criar token: {str(e)}")
+                        st.session_state['current_page'] = "Login"
+                else:
+                    st.session_state['current_page'] = "Login"
+                st.success("Cadastro realizado com sucesso!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao cadastrar: {str(e)}")
             finally:
                 session.close()
 
+# ---------- FUNÇÕES DE LOGIN ----------
 def login_usuario():
+    import extra_streamlit_components as stx
+    cookie_manager = stx.CookieManager()
     st.title("Login de Usuário")
     with st.form("login_form"):
         username = st.text_input("Nome de usuário")
         password = st.text_input("Senha", type="password")
+        remember_me = st.checkbox("Manter conectado")
         submitted = st.form_submit_button("Entrar")
 
         if submitted:
@@ -683,22 +910,45 @@ def login_usuario():
             session.close()
 
             if user and check_pwd(user.password, password):
-                st.session_state['logged_in'] = True
-                st.session_state['user_id'] = user.id
-                st.session_state['username'] = user.username
-                st.session_state['is_admin'] = False
-                st.success(f"Bem-vindo, {user.name}!")
-                st.session_state['current_page'] = "Home"
-                st.rerun()
+                if remember_me:
+                    try:
+                        cookie_value = create_auth_token(user.id)
+                        cookie_manager.set(
+                            "auth_token",
+                            cookie_value,
+                            max_age=36000,  # 10 horas
+                            path="/",
+                            secure=False   # True em produção
+                        )
+                        st.session_state['auth_token'] = cookie_value
+                        st.session_state['logged_in'] = True
+                        st.session_state['user_id'] = user.id
+                        st.session_state['username'] = user.username
+                        st.session_state['is_admin'] = False
+                        st.success(f"Bem-vindo, {user.name}!")
+                        st.session_state['current_page'] = "Home"
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao criar token: {str(e)}")
+                else:
+                    st.session_state['logged_in'] = True
+                    st.session_state['user_id'] = user.id
+                    st.session_state['username'] = user.username
+                    st.session_state['is_admin'] = False
+                    st.success(f"Bem-vindo, {user.name}!")
+                    st.session_state['current_page'] = "Home"
+                    st.rerun()
             else:
                 st.error("Credenciais inválidas.")
 
 def login_admin():
+    import extra_streamlit_components as stx
+    cookie_manager = stx.CookieManager()
     st.title("Login Administrativo")
-
     with st.form("admin_login_form"):
         username = st.text_input("Usuário Administrador")
         password = st.text_input("Senha", type="password")
+        remember_me = st.checkbox("Manter conectado")
         submitted = st.form_submit_button("Entrar")
 
         if submitted:
@@ -707,19 +957,55 @@ def login_admin():
                 return
 
             session = Session()
-            admin = session.query(User).filter_by(username=username, is_admin=1).first()
+            admin = session.query(User).filter_by(username=username, is_admin=True).first()
             session.close()
 
             if admin and check_pwd(admin.password, password):
-                st.session_state['logged_in'] = True
-                st.session_state['user_id'] = admin.id
-                st.session_state['username'] = admin.username
-                st.session_state['is_admin'] = True
-                st.success(f"Bem-vindo, {admin.username}! 🚀")
-                st.session_state['current_page'] = "Agendamentos"
-                st.rerun()
+                if remember_me:
+                    try:
+                        cookie_value = create_auth_token(admin.id)
+                        cookie_manager.set(
+                            "auth_token",
+                            cookie_value,
+                            max_age=36000,  # 10 horas
+                            path="/",
+                            secure=False   # True em produção
+                        )
+                        st.session_state['auth_token'] = cookie_value
+                        st.session_state['logged_in'] = True
+                        st.session_state['user_id'] = admin.id
+                        st.session_state['username'] = admin.username
+                        st.session_state['is_admin'] = True
+                        st.success(f"Bem-vindo, {admin.username}! 🚀")
+                        st.session_state['current_page'] = "Agendamentos"
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao criar token: {str(e)}")
+                else:
+                    st.session_state['logged_in'] = True
+                    st.session_state['user_id'] = admin.id
+                    st.session_state['username'] = admin.username
+                    st.session_state['is_admin'] = True
+                    st.success(f"Bem-vindo, {admin.username}! 🚀")
+                    st.session_state['current_page'] = "Agendamentos"
+                    st.rerun()
             else:
                 st.error("Credenciais inválidas ou sem permissão de administrador.")
+
+def logout():
+    import extra_streamlit_components as stx
+    cookie_manager = stx.CookieManager()
+    cookie_value = cookie_manager.get("auth_token")
+    if cookie_value is not None:
+        cookie_manager.delete("auth_token")
+    if 'auth_token' in st.session_state:
+        logout_user(st.session_state['auth_token'])
+        del st.session_state['auth_token']
+    st.session_state['logged_in'] = False
+    st.session_state['user_id'] = None
+    st.session_state['username'] = None
+    st.session_state['is_admin'] = False
+    st.session_state['current_page'] = "Home"
 
 # ---------- AUTENTICAÇÃO & PÁGINAS ADMIN ----------
 def admin_agendamentos():
@@ -1439,115 +1725,234 @@ def meus_agendamentos():
         if appointment.image_path and isinstance(appointment.image_path, str) and appointment.image_path.strip() != "None":
             st.image(appointment.image_path, width=200, caption="Foto da piscina")
 
-# ---------- ROTEAMENTO ----------
+# Função para checar autenticação por cookie
+def check_authentication():
+    import extra_streamlit_components as stx
+    cookie_manager = stx.CookieManager()
+    cookie_value = cookie_manager.get("auth_token")
+    user_id = validate_auth_token(cookie_value) if cookie_value else None
+    if user_id:
+        st.session_state['logged_in'] = True
+        st.session_state['user_id'] = user_id
+        st.session_state['auth_token'] = cookie_value
+    else:
+        st.session_state['logged_in'] = False
+        st.session_state['user_id'] = None
+        st.session_state.pop('auth_token', None)
+
+# --- Página de administração de usuários ---
+def admin_usuarios():
+    st.subheader("Gerenciamento de Usuários")
+    session = Session()
+
+    # --- Formulário para criar novo usuário ---
+    with st.expander("Cadastrar novo usuário"):
+        new_username = st.text_input("Novo nome de usuário", key="admin_new_username")
+        new_password = st.text_input("Nova senha", type="password", key="admin_new_password")
+        new_name = st.text_input("Nome completo", key="admin_new_name")
+        new_email = st.text_input("Email", key="admin_new_email")
+        new_phone = st.text_input("Telefone", key="admin_new_phone")
+        new_address = st.text_input("Endereço", key="admin_new_address")
+        new_is_admin = st.checkbox("Administrador?", key="admin_new_is_admin")
+        if st.button("Criar usuário", key="admin_create_user"):
+            if not all([new_username, new_password, new_name, new_email]):
+                st.error("Preencha todos os campos obrigatórios!")
+            elif session.query(User).filter((User.username == new_username) | (User.email == new_email)).first():
+                st.error("Nome de usuário ou email já cadastrado.")
+            else:
+                password_hash = hash_pwd(new_password)
+                novo = User(
+                    username=new_username,
+                    password=password_hash,
+                    name=new_name,
+                    email=new_email,
+                    phone=new_phone,
+                    address=new_address,
+                    is_admin=new_is_admin
+                )
+                session.add(novo)
+                session.commit()
+                st.success("Usuário criado com sucesso!")
+                st.experimental_rerun()
+
+    # --- Tabela e gerenciamento de usuários ---
+    usuarios = session.query(User).all()
+    df = pd.DataFrame([{
+        "ID": u.id,
+        "Usuário": u.username,
+        "Nome": u.name,
+        "Email": u.email,
+        "Telefone": u.phone,
+        "Admin": "Sim" if u.is_admin else "Não"
+    } for u in usuarios])
+
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # Seleção para editar/promover/remover
+    user_ids = [u.id for u in usuarios]
+    user_names = [f"{u.name} ({u.username})" for u in usuarios]
+    if not user_names:
+        st.info("Nenhum usuário cadastrado.")
+        session.close()
+        return
+    selected = st.selectbox("Selecione um usuário para gerenciar", user_names)
+    user = usuarios[user_names.index(selected)]
+
+    st.markdown(f"**Usuário:** {user.username} | **Admin:** {'Sim' if user.is_admin else 'Não'}")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("Promover a Admin", disabled=user.is_admin):
+            user.is_admin = True
+            session.commit()
+            st.success("Usuário promovido a administrador!")
+            st.rerun()
+    with col2:
+        if st.button("Remover Admin", disabled=not user.is_admin):
+            user.is_admin = False
+            session.commit()
+            st.success("Permissão de administrador removida!")
+            st.rerun()
+    with col3:
+        if st.button("Excluir Usuário"):
+            session.delete(user)
+            session.commit()
+            st.success("Usuário excluído!")
+            st.rerun()
+
+    session.close()
+
+# ---------- FUNÇÃO PRINCIPAL ----------
 def main():
     # Inicializar banco de dados
     init_db()
 
-    # Inicializar estados da sessão
+    # Verificar autenticação por cookie no início
     if 'logged_in' not in st.session_state:
-        st.session_state['logged_in'] = False
+        check_authentication()
+
+    # Configuração inicial
     if 'current_page' not in st.session_state:
         st.session_state['current_page'] = "Home"
-    if 'user_agent' not in st.session_state:
-        st.session_state['user_agent'] = st.query_params.get('user_agent', [''])[0]
+    if 'user_id' not in st.session_state:
+        st.session_state['user_id'] = None
+    if 'username' not in st.session_state:
+        st.session_state['username'] = None
     if 'is_admin' not in st.session_state:
         st.session_state['is_admin'] = False
 
-    # Detectar dispositivo
-    dispositivo = detectar_dispositivo()
+    # Verificar token de autenticação
+    if 'auth_token' in st.session_state:
+        try:
+            user_id = validate_auth_token(st.session_state['auth_token'])
+            if user_id:
+                session = Session()
+                user = session.query(User).filter_by(id=user_id).first()
+                session.close()
+
+                if user:
+                    st.session_state['logged_in'] = True
+                    st.session_state['user_id'] = user.id
+                    st.session_state['username'] = user.username
+                    st.session_state['is_admin'] = user.is_admin
+                    if user.is_admin:
+                        st.session_state['current_page'] = "Agendamentos"
+                    else:
+                        st.session_state['current_page'] = "Home"
+        except Exception as e:
+            st.error(f"Erro ao validar token: {str(e)}")
+            logout()
 
     # Menu lateral
-    st.sidebar.title("Menu")
+    with st.sidebar:
+        # Definir menu_items padrão
+        menu_items = {
+            "Home": homepage,
+            "Área de Cobertura": mapa_tempo,
+            "Contato": contato,
+            "Galeria": admin_gallery
+        }
 
-    if st.session_state['logged_in']:
-        # Obter informações do usuário
-        session = Session()
-        if st.session_state['is_admin']:
-            user = session.query(User).filter_by(id=st.session_state['user_id']).first()
-            user_type = "Administrador"
+        # Exibir informações do usuário logado
+        if st.session_state.get('logged_in'):
+            usuario = st.session_state.get('username', 'Usuário')
+            admin = st.session_state.get('is_admin', False)
+            tipo = "Administrador" if admin else "Usuário"
+            device = detectar_dispositivo()
+            st.markdown(f"""
+            <div style='padding:10px; border-radius:8px; background:#222; margin-bottom:10px; color:#fff;'>
+                <b>Logado como:</b> {usuario}<br>
+                <b>Tipo:</b> {tipo}<br>
+                <b>Dispositivo:</b> {device}
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Atualizar menu_items baseado no tipo de usuário
+        if st.session_state['logged_in']:
+            if st.session_state['is_admin']:
+                menu_items = {
+                    "Agendamentos": admin_agendamentos,
+                    "Serviços": admin_services,
+                    "Configurações": admin_config,
+                    "Galeria": admin_gallery,
+                    "Banco de Dados": admin_database,
+                    "Usuários": admin_usuarios
+                }
+            else:
+                menu_items = {
+                    "Home": homepage,
+                    "Área de Cobertura": mapa_tempo,
+                    "Contato": contato,
+                    "Meus Agendamentos": meus_agendamentos,
+                    "Galeria": admin_gallery
+                }
         else:
-            user = session.query(User).filter_by(id=st.session_state['user_id']).first()
-            user_type = "Usuário"
-        session.close()
+            menu_items = {
+                "Home": homepage,
+                "Área de Cobertura": mapa_tempo,
+                "Contato": contato,
+                "Galeria": admin_gallery,
+                "Login": login_usuario,
+                "Login Administrativo": login_admin,
+                "Cadastro": cadastro
+            }
 
-        # Exibir informações do usuário no menu lateral
-        st.sidebar.markdown("---")
-        st.sidebar.markdown(f"**Usuário:** {user.name}")
-        st.sidebar.markdown(f"**Tipo:** {user_type}")
-        st.sidebar.markdown(f"**Dispositivo:** {dispositivo.upper()}")
+        # Garantir que current_page é válido
+        if 'current_page' not in st.session_state or st.session_state['current_page'] not in menu_items:
+            st.session_state['current_page'] = list(menu_items.keys())[0]
 
-        if st.session_state['is_admin']:
-            # Menu para administradores
-            st.session_state['current_page'] = st.sidebar.radio(
-                "Navegação",
-                ["Agendamentos", "Serviços", "Configurações", "Galeria", "Banco de Dados", "Logout"],
-                key="nav_admin"
-            )
-
-            if st.session_state['current_page'] == "Logout":
-                st.session_state['logged_in'] = False
-                st.session_state['is_admin'] = False
-                st.session_state['current_page'] = "Home"
-                st.rerun()
-            elif st.session_state['current_page'] == "Agendamentos":
-                admin_agendamentos()
-            elif st.session_state['current_page'] == "Serviços":
-                admin_services()
-            elif st.session_state['current_page'] == "Configurações":
-                admin_config()
-            elif st.session_state['current_page'] == "Galeria":
-                admin_gallery()
-            elif st.session_state['current_page'] == "Banco de Dados":
-                admin_database()
-        else:
-            # Menu para usuários comuns
-            st.session_state['current_page'] = st.sidebar.radio(
-                "Navegação",
-                ["Home", "Área de Cobertura", "Contato", "Meus Agendamentos", "Logout"],
-                key="nav_user"
-            )
-
-            if st.session_state['current_page'] == "Logout":
-                st.session_state['logged_in'] = False
-                st.session_state['current_page'] = "Home"
-                st.rerun()
-            elif st.session_state['current_page'] == "Home":
-                homepage()
-            elif st.session_state['current_page'] == "Área de Cobertura":
-                mapa_tempo()
-            elif st.session_state['current_page'] == "Contato":
-                contato()
-            elif st.session_state['current_page'] == "Meus Agendamentos":
-                meus_agendamentos()
-    else:
-        # Menu para usuários não logados
-        st.session_state['current_page'] = st.sidebar.radio(
-            "Navegação",
-            ["Home", "Área de Cobertura", "Login", "Cadastro", "Admin"],
-            key="nav_not_logged_in"
+        # Menu e botão logout SEM esconder o selectbox
+        selected = st.selectbox(
+            "Menu",
+            list(menu_items.keys()),
+            index=list(menu_items.keys()).index(st.session_state['current_page'])
         )
+        if selected != st.session_state['current_page']:
+            st.session_state['current_page'] = selected
 
-        if st.session_state['current_page'] == "Home":
-            homepage()
-        elif st.session_state['current_page'] == "Área de Cobertura":
-            mapa_tempo()
-        elif st.session_state['current_page'] == "Login":
-            login_usuario()
-        elif st.session_state['current_page'] == "Cadastro":
-            cadastro()
-        elif st.session_state['current_page'] == "Admin":
-            login_admin()
+        if st.session_state['logged_in'] and st.button("Logout"):
+            logout()
+            st.rerun()
 
-    # Ocultar barra superior, rodapé e header do Streamlit
-    hide_streamlit_style = """
-        <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;} # para habilitar o header, basta mudar para "visible"
-        </style>
-    """
-    st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+        # Painel de debug para desenvolvimento
+        if ENVIRONMENT == "development":
+            st.markdown("---")
+            st.markdown("### [DEBUG] Informações do Sistema")
+            st.write("Usuário logado:", st.session_state.get('username'))
+            st.write("ID do usuário:", st.session_state.get('user_id'))
+            st.write("Admin:", st.session_state.get('is_admin'))
+            st.write("Token:", st.session_state.get('auth_token'))
+            st.write("Ambiente:", ENVIRONMENT)
+            st.write("DB_PATH:", DB_PATH)
+            st.write("User-Agent:", st.session_state.get('user_agent'))
+            try:
+                st.write("Feature Flags:", feature_flags.flags)
+            except Exception:
+                st.write("Feature Flags: erro ao acessar")
+
+    # Sempre renderiza a página atual
+    if st.session_state['current_page'] in menu_items:
+        menu_items[st.session_state['current_page']]()
 
 if __name__ == "__main__":
     main()

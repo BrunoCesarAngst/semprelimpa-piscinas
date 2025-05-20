@@ -1,30 +1,36 @@
 import os
 from dotenv import load_dotenv
 
+# Detectar ambiente
+env = os.getenv("ENVIRONMENT", "development")
+
+# Selecionar arquivo de ambiente
+if env == "production":
+    env_file = ".env.production"
+elif env == "staging":
+    env_file = ".env.staging"
+elif env == "development":
+    env_file = ".env.development"
+else:
+    env_file = ".env"
+
+# Carregar o arquivo de ambiente
+load_dotenv(env_file)
+
 class Settings:
     def __init__(self):
         # Configurações padrão
         self.ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
-        self.DB_PATH = os.getenv("DB_PATH", "data/database.db")
+        self.DB_PATH = os.getenv("DB_PATH", "test.db")
         self.ADMIN_SECRET = os.getenv("ADMIN_SECRET", "admin_secret")
         self.WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "")
         self.WHATSAPP_LINK = os.getenv("WHATSAPP_LINK", "")
 
-        # Carregar variáveis de ambiente do arquivo .env
+        # Tentar carregar variáveis de ambiente do arquivo .env
         self.load_env()
 
     def load_env(self):
         """Carrega variáveis de ambiente do arquivo .env"""
-        # Determinar qual arquivo .env carregar baseado no ambiente
-        env_file = f".env.{self.ENVIRONMENT}" if self.ENVIRONMENT != "development" else ".env"
-
-        # Tentar carregar o arquivo .env específico do ambiente
-        if os.path.exists(env_file):
-            load_dotenv(env_file)
-        else:
-            # Se não existir, tentar carregar o .env padrão
-            load_dotenv()
-
         # Atualizar configurações após carregar o .env
         self.ENVIRONMENT = os.getenv("ENVIRONMENT", self.ENVIRONMENT)
         self.DB_PATH = os.getenv("DB_PATH", self.DB_PATH)
