@@ -13,6 +13,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from models import User, Service, Appointment, Config, Gallery, Base
 from utils import hash_pwd, check_pwd
+import alembic.config
+from alembic import command
+from alembic.script import ScriptDirectory
+from alembic.runtime.environment import EnvironmentContext
+import shutil
 
 # ---------- CONFIGURAÇÕES ----------
 ENVIRONMENT = settings.ENVIRONMENT
@@ -132,6 +137,77 @@ def create_default_services():
     finally:
         session.close()
 
+def backup_db():
+    """
+    Cria um backup do banco de dados atual.
+
+    Returns:
+        str: Caminho do arquivo de backup ou None em caso de erro
+    """
+    if not os.path.exists(DB_PATH):
+        return None
+
+    try:
+        # Criar diretório de backup se não existir
+        backup_dir = os.path.join(os.path.dirname(DB_PATH), "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+
+        # Nome do arquivo de backup com timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = os.path.join(backup_dir, f"db_backup_{timestamp}.sqlite")
+
+        # Copiar o arquivo do banco de dados
+        shutil.copy2(DB_PATH, backup_file)
+
+        # Manter apenas os 5 backups mais recentes
+        backups = sorted([os.path.join(backup_dir, f) for f in os.listdir(backup_dir)])
+        if len(backups) > 5:
+            for old_backup in backups[:-5]:
+                os.remove(old_backup)
+
+        return backup_file
+    except Exception as e:
+        print(f"Erro ao criar backup: {str(e)}")
+        return None
+
+def run_alembic_migrations():
+    """
+    Executa automaticamente as migrações pendentes do Alembic.
+    Deve ser chamado durante a inicialização do aplicativo.
+
+    Returns:
+        tuple: (success, message)
+    """
+    try:
+        # Configurar o Alembic
+        alembic_cfg = alembic.config.Config("alembic.ini")
+        script = ScriptDirectory.from_config(alembic_cfg)
+
+        # Verificar se há migrações pendentes
+        with EnvironmentContext(
+            alembic_cfg,
+            script,
+            fn=lambda rev, _: script.get_revisions(rev)
+        ) as env:
+            env.configure(connection=engine.connect(), target_metadata=Base.metadata)
+            context = env.get_context()
+            current_rev = context.get_current_revision()
+            head_rev = script.get_current_head()
+
+            if current_rev != head_rev:
+                # Há migrações pendentes, criar backup antes de aplicar
+                backup_file = backup_db()
+
+                # Executar migrações
+                command.upgrade(alembic_cfg, "head")
+
+                return True, f"Banco de dados atualizado para a revisão {head_rev}"
+            else:
+                return True, "Banco de dados já está na versão mais recente"
+
+    except Exception as e:
+        return False, f"Erro ao executar migrações: {str(e)}"
+
 def init_db():
     """Inicializa o banco de dados"""
     global engine, Session
@@ -146,12 +222,17 @@ def init_db():
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
 
-    # Agora sim, inicializa a engine e o sessionmaker
+    # Inicializa a engine e o sessionmaker
     engine = create_engine(f"sqlite:///{DB_PATH}")
     Session = sessionmaker(bind=engine)
 
-    Base.metadata.create_all(engine)
-    create_default_services()  # Adiciona os serviços padrão
+    # Executar migrações Alembic
+    success, message = run_alembic_migrations()
+    if not success:
+        st.warning(message)
+
+    # Criar serviços padrão se necessário
+    create_default_services()
 
 def get_weather():
     # Previsão atual
@@ -647,12 +728,70 @@ def admin_agendamentos():
         .join(User, Appointment.user_id == User.id)
         .join(Service, Appointment.service_id == Service.id)
         .order_by(
-            # Ordenação customizada pode ser feita em Python se necessário
             Appointment.date, Appointment.time
         )
         .all()
     )
+    usuarios = session.query(User).all()
+    servicos = session.query(Service).filter_by(active=1).all()
     session.close()
+
+    # Botão para novo agendamento
+    if st.button("Novo Agendamento", key="novo_agendamento_admin"):
+        st.session_state['edit_agendamento_id'] = None
+        st.session_state['show_agendamento_form'] = True
+
+    # Formulário de novo/edição de agendamento
+    if st.session_state.get('show_agendamento_form', False):
+        session = Session()
+        agendamento = None
+        if st.session_state.get('edit_agendamento_id'):
+            agendamento = session.query(Appointment).filter_by(id=st.session_state['edit_agendamento_id']).first()
+        st.markdown("### Formulário de Agendamento")
+        with st.form("form_agendamento_admin"):
+            user_options = {f"{u.name} ({u.email})": u.id for u in usuarios}
+            service_options = {s.name: s.id for s in servicos}
+            status_options = ["novo", "pendente", "confirmado", "feito", "não feito", "rejeitado"]
+            user_id = st.selectbox("Cliente", options=list(user_options.keys()), index=list(user_options.values()).index(agendamento.user_id) if agendamento else 0)
+            service_id = st.selectbox("Serviço", options=list(service_options.keys()), index=list(service_options.values()).index(agendamento.service_id) if agendamento else 0)
+            date = st.date_input("Data", value=agendamento.date if agendamento and agendamento.date else datetime.now().date())
+            time = st.time_input("Horário", value=agendamento.time if agendamento and agendamento.time else datetime.now().time().replace(second=0, microsecond=0))
+            # Corrigir status para aceitar qualquer valor existente
+            status_value = agendamento.status if agendamento and agendamento.status in status_options else status_options[0]
+            status = st.selectbox("Status", options=status_options, index=status_options.index(status_value))
+            address = st.text_input("Endereço", value=agendamento.address if agendamento else "")
+            notes = st.text_area("Comentários", value=agendamento.notes if agendamento else "")
+            submitted = st.form_submit_button("Salvar")
+            if submitted:
+                if agendamento:
+                    agendamento.user_id = user_options[user_id]
+                    agendamento.service_id = service_options[service_id]
+                    agendamento.date = date
+                    agendamento.time = time
+                    agendamento.status = status
+                    agendamento.address = address
+                    agendamento.notes = notes
+                else:
+                    novo = Appointment(
+                        user_id=user_options[user_id],
+                        service_id=service_options[service_id],
+                        date=date,
+                        time=time,
+                        status=status,
+                        address=address,
+                        notes=notes,
+                        created_at=datetime.now().isoformat()
+                    )
+                    session.add(novo)
+                session.commit()
+                session.close()
+                st.success("Agendamento salvo com sucesso!")
+                st.session_state['show_agendamento_form'] = False
+                st.session_state['edit_agendamento_id'] = None
+                st.rerun()
+        session.close()
+        st.button("Cancelar", key="cancelar_form_agendamento", on_click=lambda: st.session_state.update({'show_agendamento_form': False, 'edit_agendamento_id': None}))
+        st.markdown("---")
 
     if not agendamentos:
         st.info("Nenhum agendamento encontrado.")
@@ -776,6 +915,7 @@ def admin_agendamentos():
                         <div class="card-label">Valor</div>
                         <div class="card-value">R$ {appointment.price:,.2f}</div>
                     </div>
+                    {(f'<div class="card-item"><div class="card-label">Comentário do Administrador</div><div class="card-value">{appointment.notes}</div></div>' if appointment.notes else '')}
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -785,7 +925,7 @@ def admin_agendamentos():
             st.image(appointment.image_path, width=200, caption="Foto da piscina")
 
         # Botões de ação
-        col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+        col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 2, 1])
         with col1:
             if appointment.status == 'novo':
                 if st.button("Confirmar", key=f"conf_{appointment.id}"):
@@ -810,7 +950,6 @@ def admin_agendamentos():
                     st.rerun()
         with col3:
             if st.button("🗑️ Deletar", key=f"del_{appointment.id}"):
-                # Confirmar a exclusão
                 if st.session_state.get('confirm_delete') == appointment.id:
                     session = Session()
                     appt = session.query(Appointment).filter_by(id=appointment.id).first()
@@ -827,6 +966,11 @@ def admin_agendamentos():
         with col4:
             if appointment.image_path and isinstance(appointment.image_path, str) and appointment.image_path.strip() != "None":
                 st.image(appointment.image_path, width=200, caption="Foto da piscina")
+        with col5:
+            if st.button("Editar", key=f"edit_{appointment.id}"):
+                st.session_state['edit_agendamento_id'] = appointment.id
+                st.session_state['show_agendamento_form'] = True
+                st.rerun()
 
 def admin_services():
     st.subheader("Gerenciamento de Serviços")
@@ -1000,6 +1144,143 @@ def admin_gallery():
             else:
                 st.error("Preencha todos os campos!")
 
+def admin_database():
+    """Interface administrativa para gerenciamento do banco de dados."""
+    st.title("Gerenciamento do Banco de Dados")
+
+    # Verificar se o usuário é administrador
+    if not st.session_state.get('is_admin', False):
+        st.error("Acesso negado. Esta página é restrita a administradores.")
+        return
+
+    # Informações do banco de dados
+    st.subheader("Informações do Banco de Dados")
+
+    # Obter informações do Alembic
+    alembic_cfg = alembic.config.Config("alembic.ini")
+    script = ScriptDirectory.from_config(alembic_cfg)
+
+    with EnvironmentContext(
+        alembic_cfg,
+        script,
+        fn=lambda rev, _: script.get_revisions(rev)
+    ) as env:
+        env.configure(connection=engine.connect(), target_metadata=Base.metadata)
+        context = env.get_context()
+        current_rev = context.get_current_revision()
+
+    head_rev = script.get_current_head()
+
+    st.info(f"Revisão atual: {current_rev}")
+    st.info(f"Revisão mais recente disponível: {head_rev}")
+
+    if current_rev != head_rev:
+        st.warning("O banco de dados não está na versão mais recente.")
+        if st.button("Atualizar para a versão mais recente"):
+            # Criar backup antes de atualizar
+            backup_file = backup_db()
+            if backup_file:
+                st.success(f"Backup criado: {os.path.basename(backup_file)}")
+
+                try:
+                    # Executar migrações
+                    command.upgrade(alembic_cfg, "head")
+                    st.success("Banco de dados atualizado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao atualizar o banco de dados: {str(e)}")
+
+    # Histórico de migrações
+    st.subheader("Histórico de Migrações")
+
+    history = []
+    for rev in script.walk_revisions():
+        history.append({
+            "revision": rev.revision,
+            "down_revision": rev.down_revision,
+            "description": rev.doc,
+            "is_current": rev.revision == current_rev
+        })
+
+    # Exibir histórico em ordem cronológica
+    for rev_info in reversed(history):
+        status = "✅ (atual)" if rev_info["is_current"] else "✅" if rev_info["revision"] < current_rev else "⏳"
+        st.markdown(f"**{status} {rev_info['revision']}**: {rev_info['description']}")
+
+    # Backup e restauração
+    st.subheader("Backup e Restauração")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Criar Backup Manual"):
+            backup_file = backup_db()
+            if backup_file:
+                st.success(f"Backup criado com sucesso: {os.path.basename(backup_file)}")
+
+    # Listar backups disponíveis
+    backup_dir = os.path.join(os.path.dirname(DB_PATH), "backups")
+    if os.path.exists(backup_dir):
+        backups = sorted([f for f in os.listdir(backup_dir) if f.startswith("db_backup_")])
+
+        if backups:
+            st.subheader("Backups Disponíveis")
+            selected_backup = st.selectbox("Selecione um backup para restaurar:", backups)
+
+            if st.button("Restaurar Backup Selecionado"):
+                if "confirm_restore" not in st.session_state:
+                    st.session_state["confirm_restore"] = False
+
+                if not st.session_state["confirm_restore"]:
+                    st.warning("⚠️ ATENÇÃO: A restauração substituirá todos os dados atuais. Esta ação não pode ser desfeita.")
+                    if st.button("Confirmar Restauração"):
+                        st.session_state["confirm_restore"] = True
+                        backup_path = os.path.join(backup_dir, selected_backup)
+
+                        # Fechar todas as conexões
+                        if engine:
+                            engine.dispose()
+
+                        # Restaurar o backup
+                        shutil.copy2(backup_path, DB_PATH)
+                        st.success("Backup restaurado com sucesso! O aplicativo será reiniciado.")
+                        st.rerun()
+
+    # Operações avançadas do Alembic
+    st.subheader("Operações Avançadas")
+
+    # Downgrade para uma revisão específica
+    st.markdown("#### Downgrade para Revisão Específica")
+    st.warning("⚠️ Esta operação pode resultar em perda de dados. Use com cautela.")
+
+    target_revisions = [(rev.revision, rev.doc) for rev in script.walk_revisions()]
+    target_options = [f"{rev[0]}: {rev[1]}" for rev in target_revisions]
+
+    selected_target = st.selectbox("Selecione a revisão alvo:", target_options)
+    target_rev = selected_target.split(":")[0].strip() if selected_target else None
+
+    if target_rev and st.button("Executar Downgrade"):
+        if "confirm_downgrade" not in st.session_state:
+            st.session_state["confirm_downgrade"] = False
+
+        if not st.session_state["confirm_downgrade"]:
+            st.error("⚠️ ATENÇÃO: O downgrade pode resultar em perda permanente de dados. Esta ação não pode ser desfeita.")
+            if st.button("Confirmar Downgrade"):
+                st.session_state["confirm_downgrade"] = True
+
+                # Criar backup antes do downgrade
+                backup_file = backup_db()
+                if backup_file:
+                    st.success(f"Backup criado: {os.path.basename(backup_file)}")
+
+                    try:
+                        # Executar downgrade
+                        command.downgrade(alembic_cfg, target_rev)
+                        st.success(f"Banco de dados revertido para a revisão {target_rev}!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao reverter o banco de dados: {str(e)}")
+
 def detectar_dispositivo():
     """Detecta o tipo de dispositivo que está acessando o aplicativo"""
     user_agent = st.session_state.get('user_agent', '')
@@ -1147,6 +1428,7 @@ def meus_agendamentos():
                         <div class="card-label">Contato</div>
                         <div class="card-value">{user.phone}</div>
                     </div>
+                    {(f'<div class="card-item"><div class="card-label">Comentário do Administrador</div><div class="card-value">{appointment.notes}</div></div>' if appointment.notes else '')}
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -1197,7 +1479,7 @@ def main():
             # Menu para administradores
             st.session_state['current_page'] = st.sidebar.radio(
                 "Navegação",
-                ["Agendamentos", "Serviços", "Configurações", "Galeria", "Logout"],
+                ["Agendamentos", "Serviços", "Configurações", "Galeria", "Banco de Dados", "Logout"],
                 key="nav_admin"
             )
 
@@ -1214,6 +1496,8 @@ def main():
                 admin_config()
             elif st.session_state['current_page'] == "Galeria":
                 admin_gallery()
+            elif st.session_state['current_page'] == "Banco de Dados":
+                admin_database()
         else:
             # Menu para usuários comuns
             st.session_state['current_page'] = st.sidebar.radio(

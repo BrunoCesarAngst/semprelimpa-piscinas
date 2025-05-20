@@ -32,6 +32,34 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements.txt
 
+      - name: Verify migrations
+        run: |
+          # Criar banco de dados de teste
+          touch test.db
+
+          # Configurar ambiente de teste
+          export ENVIRONMENT=test
+          export DB_PATH=test.db
+
+          # Verificar migrações
+          echo "🔍 Verificando migrações..."
+          alembic check
+
+          # Testar upgrade
+          echo "⬆️ Testando upgrade..."
+          alembic upgrade head
+
+          # Testar downgrade
+          echo "⬇️ Testando downgrade..."
+          alembic downgrade base
+
+          # Testar upgrade novamente
+          echo "⬆️ Testando upgrade final..."
+          alembic upgrade head
+
+          # Limpar banco de teste
+          rm test.db
+
       - name: Run tests
         run: |
           pytest tests/ --cov=./ --cov-report=xml
@@ -77,7 +105,7 @@ jobs:
 
   deploy:
     needs: staging
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -108,7 +136,5 @@ jobs:
 
       - name: Deploy to production
         run: |
-          # Aqui você adicionaria os comandos para deploy em produção
-          # Por exemplo, se estiver usando um servidor:
-          # scp -r ./* user@server:/path/to/app
-          echo "Deploy para produção concluído"
+          echo "🚀 Deploying to production..."
+          # Adicione aqui seus comandos de deploy
