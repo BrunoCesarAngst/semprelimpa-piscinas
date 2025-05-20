@@ -38,8 +38,15 @@ jobs:
           ENVIRONMENT: "test"
           DB_PATH: "test.db"
         run: |
+          # Criar diretório data se não existir
+          mkdir -p data
+
           # Criar banco de dados de teste
           touch test.db
+
+          # Inicializar banco de dados com a primeira migração
+          echo "🔧 Inicializando banco de dados..."
+          alembic stamp base
 
           # Verificar migrações
           echo "🔍 Verificando migrações..."
@@ -99,7 +106,11 @@ jobs:
       - name: Run migrations on staging
         env:
           ALEMBIC_MIGRATION: "true"
-        run: alembic upgrade head
+        run: |
+          # Inicializar banco de dados
+          alembic stamp base
+          # Executar migrações
+          alembic upgrade head
 
       - name: Validate staging
         run: |
@@ -136,7 +147,11 @@ jobs:
       - name: Run migrations on production
         env:
           ALEMBIC_MIGRATION: "true"
-        run: alembic upgrade head
+        run: |
+          # Inicializar banco de dados
+          alembic stamp base
+          # Executar migrações
+          alembic upgrade head
 
       - name: Deploy to production
         run: |
