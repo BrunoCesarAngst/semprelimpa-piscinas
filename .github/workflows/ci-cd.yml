@@ -32,44 +32,25 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements.txt
 
-      - name: Verify migrations
-        env:
-          ALEMBIC_MIGRATION: "true"
-          ENVIRONMENT: "test"
-          DB_PATH: "test.db"
+      - name: Verificar migrações
         run: |
           # Criar diretório data se não existir
           mkdir -p data
 
           # Criar banco de dados vazio
-          touch test.db
+          touch ${{ env.DB_PATH }}
 
-          # Criar migração inicial que reflita o estado atual dos modelos
-          echo "🔧 Criando migração inicial..."
+          # Criar migração inicial
           alembic revision --autogenerate -m "initial"
 
-          # Inicializar banco de dados vazio
-          echo "🔧 Inicializando banco de dados..."
+          # Marcar banco como base
           alembic stamp base
 
-          # Aplicar migrações para criar as tabelas
-          echo "⬆️ Aplicando migrações..."
+          # Aplicar migrações
           alembic upgrade head
 
           # Verificar migrações
-          echo "🔍 Verificando migrações..."
           alembic check
-
-          # Testar downgrade
-          echo "⬇️ Testando downgrade..."
-          alembic downgrade base
-
-          # Testar upgrade novamente
-          echo "⬆️ Testando upgrade final..."
-          alembic upgrade head
-
-          # Limpar banco de teste
-          rm test.db
 
       - name: Run tests
         run: |

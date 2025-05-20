@@ -38,6 +38,18 @@ def include_object(object, name, type_, reflected, compare_to):
         return False
     return True
 
+def process_revision_directives(context, revision, directives):
+    # Não ignorar tabelas vazias na migração inicial
+    if directives and len(directives) > 0:
+        script = directives[0]
+        if script.upgrade_ops.is_empty():
+            # Verificar se é a migração inicial
+            if context.get_current_revision() is None:
+                print("🔧 Migração inicial - não ignorando tabelas vazias")
+                return
+            directives[:] = []
+            print("🔧 Nenhuma alteração detectada")
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
