@@ -112,7 +112,7 @@ jobs:
           ALEMBIC_MIGRATION: "true"
         run: |
           # Criar banco de dados vazio
-          touch ${{ settings.DB_PATH }}
+          touch data/database_staging.db
 
           # Criar migração inicial que reflita o estado atual dos modelos
           alembic revision --autogenerate -m "initial"
@@ -160,7 +160,7 @@ jobs:
           ALEMBIC_MIGRATION: "true"
         run: |
           # Criar banco de dados vazio
-          touch ${{ settings.DB_PATH }}
+          touch data/database_production.db
 
           # Criar migração inicial que reflita o estado atual dos modelos
           alembic revision --autogenerate -m "initial"
