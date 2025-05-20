@@ -15,6 +15,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      DB_PATH: data/database_test.db
+      ENVIRONMENT: test
+      ALEMBIC_MIGRATION: "true"
     steps:
       - uses: actions/checkout@v2
 
@@ -64,6 +68,10 @@ jobs:
   staging:
     needs: test
     runs-on: ubuntu-latest
+    env:
+      DB_PATH: data/database_staging.db
+      ENVIRONMENT: staging
+      ALEMBIC_MIGRATION: "true"
     steps:
       - uses: actions/checkout@v2
 
@@ -83,17 +91,15 @@ jobs:
       - name: Criar .env.staging
         run: |
           echo "ENVIRONMENT=staging" > .env.staging
-          echo "DB_PATH=data/database_staging.db" >> .env.staging
+          echo "DB_PATH=${{ env.DB_PATH }}" >> .env.staging
           echo "ADMIN_SECRET=${{ secrets.ADMIN_SECRET_STAGING }}" >> .env.staging
           echo "WEATHER_API_KEY=${{ secrets.WEATHER_API_KEY_STAGING }}" >> .env.staging
           echo "WHATSAPP_LINK=${{ secrets.WHATSAPP_LINK }}" >> .env.staging
 
       - name: Run migrations on staging
-        env:
-          ALEMBIC_MIGRATION: "true"
         run: |
           # Criar banco de dados vazio
-          touch data/database_staging.db
+          touch ${{ env.DB_PATH }}
 
           # Criar migração inicial que reflita o estado atual dos modelos
           alembic revision --autogenerate -m "initial"
@@ -112,6 +118,10 @@ jobs:
     needs: staging
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      DB_PATH: data/database_production.db
+      ENVIRONMENT: production
+      ALEMBIC_MIGRATION: "true"
     steps:
       - uses: actions/checkout@v2
 
@@ -131,17 +141,15 @@ jobs:
       - name: Criar .env.production
         run: |
           echo "ENVIRONMENT=production" > .env.production
-          echo "DB_PATH=data/database_production.db" >> .env.production
+          echo "DB_PATH=${{ env.DB_PATH }}" >> .env.production
           echo "ADMIN_SECRET=${{ secrets.ADMIN_SECRET_PRODUCTION }}" >> .env.production
           echo "WEATHER_API_KEY=${{ secrets.WEATHER_API_KEY_PRODUCTION }}" >> .env.production
           echo "WHATSAPP_LINK=${{ secrets.WHATSAPP_LINK }}" >> .env.production
 
       - name: Run migrations on production
-        env:
-          ALEMBIC_MIGRATION: "true"
         run: |
           # Criar banco de dados vazio
-          touch data/database_production.db
+          touch ${{ env.DB_PATH }}
 
           # Criar migração inicial que reflita o estado atual dos modelos
           alembic revision --autogenerate -m "initial"
