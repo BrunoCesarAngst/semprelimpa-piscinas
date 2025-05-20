@@ -48,8 +48,8 @@ jobs:
           alembic upgrade head
 
           # **CHECAGEM**: atual (no DB) deve ser igual ao heads (na pasta versions)
-          current=$(alembic current -q)
-          heads=$(alembic heads -q)
+          current=$(alembic current | awk '{print $1}')
+          heads=$(alembic heads | awk '{print $1}')
           echo "Current revision: $current"
           echo "Head revisions:  $heads"
           if [ "$current" != "$heads" ]; then
@@ -109,8 +109,8 @@ jobs:
           alembic upgrade head
 
           # **CHECAGEM**: atual (no DB) deve ser igual ao heads (na pasta versions)
-          current=$(alembic current -q)
-          heads=$(alembic heads -q)
+          current=$(alembic current | awk '{print $1}')
+          heads=$(alembic heads | awk '{print $1}')
           echo "Current revision: $current"
           echo "Head revisions:  $heads"
           if [ "$current" != "$heads" ]; then
@@ -166,8 +166,8 @@ jobs:
           alembic upgrade head
 
           # **CHECAGEM**: atual (no DB) deve ser igual ao heads (na pasta versions)
-          current=$(alembic current -q)
-          heads=$(alembic heads -q)
+          current=$(alembic current | awk '{print $1}')
+          heads=$(alembic heads | awk '{print $1}')
           echo "Current revision: $current"
           echo "Head revisions:  $heads"
           if [ "$current" != "$heads" ]; then
