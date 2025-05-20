@@ -182,6 +182,8 @@ def run_alembic_migrations():
         # Configurar o Alembic
         alembic_cfg = alembic.config.Config("alembic.ini")
         script = ScriptDirectory.from_config(alembic_cfg)
+        # Salvar o script no próprio config
+        alembic_cfg.attributes['script'] = script
 
         # Verificar se há migrações pendentes
         with EnvironmentContext(
